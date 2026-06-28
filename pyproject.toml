@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cave-teams"
-version = "0.1.0"
+version = "0.1.1"
 description = "Connect AI agents like code — compose any agents into teams with a tiny algebra, all topologies, a programmable message state machine, and a proven-team library. CAVE = Coding Agent Virtualization Environment."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,8 +27,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Operating System :: OS Independent",
 ]
-# Core is ZERO-dependency — the chain ontology is vendored.
-dependencies = []
+# One small dependency: pydantic (the typed dovetail model). The chain ontology is vendored.
+dependencies = ["pydantic>=2"]
 
 [project.optional-dependencies]
 # The bare MiniMax / Anthropic-compatible backend needs the anthropic client.

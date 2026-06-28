@@ -17,7 +17,7 @@ is a Link. A composition of Links *is* a Link, so teams nest inside teams foreve
 operators are enough to wire anything: `agent = team = world`.
 
 ```
-pip install cave-teams        # one tiny dependency (universal-chain-ontology)
+pip install cave-teams        # one small dependency (pydantic)
 ```
 
 ## The two operators (the DSL)

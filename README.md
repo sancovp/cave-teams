@@ -8,7 +8,7 @@ underneath can be anything (Claude Code, Codex, MiniMax, a model call, a shell c
 function); you control the *flow* with code. **CAVE = Coding Agent Virtualization Environment.**
 
 ```bash
-pip install cave-teams        # zero-dependency core
+pip install cave-teams        # one small dependency (pydantic)
 ```
 
 ## The one idea
