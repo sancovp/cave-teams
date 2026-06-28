@@ -40,7 +40,7 @@ from typing import Any, Callable, Dict, List, Optional
 from .chain_ontology import Link
 from .algebra import seq, par, gate, choice, skip, team, dovetail
 from .topologies import tournament, loop_refine, round_robin, synthesis_gate
-from .links import AgentLink
+from .wiring import AgentRef
 from .dag import dag
 from .dovetail import DovetailModel
 from .blackboard import blackboard
@@ -123,9 +123,9 @@ def _guard(route: dict) -> Callable[[Dict[str, Any]], bool]:
 
 # ── roll the native API up into the registry (the instruction set) ────────────
 register("skip", lambda s: skip())
-register("agent", lambda s: AgentLink(
-    s.get("name", "agent"), system_prompt=s.get("system_prompt", ""),
-    backend=s.get("backend", "minimax"), model=s.get("model")))
+# an "agent" leaf is a REFERENCE to a cave agent by name (agents are cave's — registered as
+# CaveAgentEntry + given a runtime via set_runtime; the topology only references them by name).
+register("agent", lambda s: AgentRef(s.get("name", "agent")))
 register("seq", lambda s: seq(*_kids(s, "links"), name=s.get("name", "seq")))
 register("par", lambda s: par(*_kids(s, "links"), name=s.get("name", "par")))
 register("gate", lambda s: gate(

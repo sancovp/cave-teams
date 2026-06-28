@@ -5,3 +5,8 @@ __pycache__/
 build/
 dist/
 .cave/
+
+# raw design convo — local only (maintainer verbatim, candid)
+THE-ONLY-SOURCE-OF-TRUTH.md
+__pycache__/
+*.pyc

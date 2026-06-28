@@ -1,60 +1,75 @@
 # cave-teams
 
-**Connect AI agents like code.** Wire your whole team of AI agents with one line instead of hundreds
-of lines of glue — add one, swap one, or reuse a whole team just by changing a word.
+**Programmable, leader-driven agent teams on [CAVE](https://pypi.org/project/cave-harness/).**
 
-cave-teams is the **programmable, provider-agnostic** version of Claude Code Teams. The agents
-underneath can be anything (Claude Code, Codex, MiniMax, a model call, a shell command, a Python
-function); you control the *flow* with code. **CAVE = Coding Agent Virtualization Environment.**
+Run many agent "teams" — a **team leader** that orchestrates **teammates** — without Claude Code Teams' blockers, reuse them, and use **MiniMax or Claude (or any runtime)**, from Claude Code. cave-teams **uses CAVE** (it doesn't reimplement it): each team **makes an ephemeral CAVE server** that hosts the agents, runs them, and serves the flow, then tears it down.
 
 ```bash
-pip install cave-teams        # one small dependency (pydantic)
+pip install cave-teams          # pulls cave-harness (the CAVE runtime) + pydantic
 ```
 
-## The one idea
+## The model
 
-Everything is the same shape — a building block. An agent is one, a team is one, a whole world is
-one. A composition of building blocks *is* a building block, so teams nest inside teams forever
-(`agent = team = world`). That is why two operators wire anything:
+Teams are always a **leader + teammates**:
+
+1. The **task** arrives as a file in the team's session dir; the leader checks it.
+2. The leader — *an intelligent autonomous dovetail* — **writes a message** to a teammate (often just *"read {path}"*).
+3. cave-teams does **not** blindly run the next thing. It **checks the message** against the **guardrails** (is the target in the team? is it that agent's turn? is the format valid?). If it's wrong, it **re-prompts the leader with the error** — and the LLM **fixes itself**. If it's right, it delivers it; the teammate runs; the leader is alerted.
+4. The leader decides the next message, or **ends the run and returns a report**.
+
+**Conditions on messages** come in two tiers:
+
+- **Closed-world** (enforced by cave-teams): turn order, membership, format — compiled from the team's algebra.
+- **Open-world** (`open_rules`): intelligent-reliant checks only the leader can judge; cave-teams surfaces them and *assumes* they hold when the leader invokes the next teammate.
+
+## Quickstart
 
 ```python
-import cave_teams
-from cave_teams import AgentLink
+from cave_teams import Team, AgentRef, seq, cave_team
+from cave_teams.examples import MiniMaxRuntime
 
-research = AgentLink("research", "Find 3 key facts.")
-writer   = AgentLink("writer",   "Turn the facts into a paragraph.")
+class Brief(Team):                       # a topology = a Team subclass (Class · Link · Config)
+    op = "brief"
+    def build(self):
+        return seq(AgentRef("researcher"), AgentRef("writer"))
 
-team = research >> writer                      # >>  run in order
-flow = research >> (security | perf | tests) >> ship   # |  run at the same time
+leader = MiniMaxRuntime("leader", tools=None)            # writes its message files (needs file tools)
+teammates = {
+    "researcher": MiniMaxRuntime("researcher", tools=[]),
+    "writer":     MiniMaxRuntime("writer", tools=[]),
+}
 
-result = await flow.execute({"goal": "ship the feature"})
+result = cave_team(
+    Brief({}), agent_runtimes=teammates, leader_runtime=leader,
+    task="Topic: why octopuses are intelligent.",
+    open_rules={"researcher": ["research must be accurate before the writer uses it"]},
+)
+print(result["report"])
 ```
 
-## What it does
+A backend is **any object with `.run(str) -> str`** — that's all `set_runtime` needs. The MiniMax/Claude backends are just an *example instance*; CAVE runs any agent runtime.
 
-- **Program any control flow** — agents fire on conditions you write (`when_flag`, `after`, any
-  predicate). The message state machine, not a markdown to-do list.
-- **Any agents** — `AgentLink` (Claude Code / MiniMax), `HeavenMiniMaxLink` (a real coding agent
-  with bash + file-edit), or `lift()` any function / callable.
-- **Every topology** — sequential, parallel, branch, loop-until-approved, join (DAG), typed
-  hand-off, shared-workspace arena, tournament, evolve, season — and they nest.
-- **Provable wiring** — termination, gate-soundness, and distribution are mechanically tested.
-- **A whole world of agents** — `GameWorld`, an economic crafter sim, agents that compete and evolve.
-- **Build once, reuse forever** — save a proven team to your golden library and drop it into any
-  project as one building block.
+## The algebra
 
-## Two layers
+Compose teammates with a tiny algebra; it compiles to the guardrails (whose turn it is):
 
-- **The native API** is how you program — the `>>` / `|` DSL and the pattern functions.
-- **`cave()`** is the metacontrol function on top: it drives the whole API from a data spec, in any
-  sequence — serialize a team, run it from JSON, save/reuse a proven team, federate caves.
+```python
+seq(a, b)          # a then b           a >> b
+par(a, b)          # a and b together   a | b
+gate(body, phi)    # loop until phi
+choice(routes)     # guarded branch
+team(G)            # a composition as one Link → a team is a teammate (closure law)
+```
 
-## Claude Code plugin
+Topologies are also **configs** (save under `.cave/golden/`, reuse, `scan_caves`) and **classes** (subclass a `Team`, override `build()`).
 
-This repo is also a Claude Code plugin (`plugin/`). It ships a skill per pattern — the language
-(`cave-teams`), the metacontrol (`cave`), and one each for sequential / parallel / branch / gate /
-conditions / dovetail / dag / blackboard / tournament / evolve / season / world / sim / metacog.
-`.claude/skills`, `.codex/skills`, and `.agent/skills` symlink to the same `plugin/skills`, so any
-coding agent that clones the repo picks them up.
+## Lower-level run
+
+`run_team(team, task, leader, teammate_runtimes, team_dir, open_rules=...)` is the leader-driven loop directly (no CAVE server). `llm_leader(rt)` / `file_leader(rt)` wrap a runtime as the leader (the latter writes its message as a file, per the session/inbox structure). `cave_team(...)` is `run_team` on a freshly-made, torn-down CAVE server.
+
+## Requires
+
+- **`cave-harness`** (the CAVE runtime; import name `cave`) — pulled in automatically.
+- For the MiniMax/Claude example backends: the heaven framework + `MINIMAX_API_KEY` in the environment.
 
 MIT.
