@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>cave-teams — Claude Code Teams you can program, for any coding agent</title>
+<meta name="description" content="The programmable, provider-agnostic version of Claude Code Teams. Control agent-team flow with a tiny DSL — for Claude Code, Codex, Antigravity, MiniMax, or any coding agent."/>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#top">cave<span class="dot">·</span>teams</a>
+  <div class="navlinks">
+    <a href="#problem">The problem</a>
+    <a href="#features">Features</a>
+    <a href="#faq">FAQ</a>
+    <a class="gh" href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">★ GitHub</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero" id="top">
+  <p class="eyebrow">A plugin for Claude Code · Codex · Antigravity · MiniMax</p>
+  <h1>Claude Code Teams <span class="grad">you can program</span>.</h1>
+  <p>You know Claude Code Teams — but you can't change how the agents coordinate. cave-teams is the
+     <b>programmable</b> version: control the whole team's flow with a tiny DSL, for <b>any</b> coding
+     agent. Build the same systems, better — plus things the built-in teams can't do at all.</p>
+  <div class="cta">
+    <a class="btn primary" href="#features">See the features</a>
+    <a class="btn ghost" href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">★ Star on GitHub</a>
+  </div>
+  <div class="install"><pre><span class="c"># soon</span>
+pip install cave-teams</pre></div>
+</header>
+
+<main>
+
+  <!-- THE ONE PROBLEM -->
+  <section class="feat" id="problem">
+    <div class="copy">
+      <h2>You can't program<br/>Claude Code Teams.</h2>
+      <p>Claude Code Teams is a black box. You get the coordination the vendor baked in — you can't change
+         the flow, add a step, swap the model, or reuse it. Want anything custom? You're back to hand-wiring
+         agents yourself, callbacks and queues and all. And every bit of it is locked to one tool.</p>
+      <p class="tag">→ You should be able to <b>program</b> your agent teams — for <b>any</b> coding agent.</p>
+    </div>
+    <pre class="code"><span class="c"># the plumbing you rewrite every time…</span>
+async def run():
+    a = await agent_a(task)
+    b, c = await asyncio.gather(
+        agent_b(a), agent_c(a))
+    return await judge(b, c)   <span class="c"># again. and again.</span></pre>
+  </section>
+
+  <!-- THE ONE DREAM -->
+  <section class="feat alt">
+    <div class="copy">
+      <h2>Imagine snapping<br/>them together instead.</h2>
+      <p>What if a whole team of agents was <i>one line</i> you could read out loud? What if adding an
+         agent meant adding a word — and a team you built once dropped straight into your next project,
+         untouched? That's the entire idea.</p>
+      <p class="tag">→ Build AI teams as easily as you snap blocks together.</p>
+    </div>
+    <pre class="code"><span class="c"># your whole team — one line</span>
+team = research <span class="o">>></span> (security <span class="o">|</span> perf <span class="o">|</span> tests) <span class="o">>></span> ship
+
+<span class="c"># read it out loud: research, then security,</span>
+<span class="c"># perf and tests at the same time, then ship.</span></pre>
+  </section>
+
+  <!-- WORKS WITH ANY CODING AGENT (provider-agnostic / plugin) -->
+  <section class="feat">
+    <div class="copy">
+      <h2>Works with the coding<br/>agents you already use.</h2>
+      <p>cave-teams isn't a new agent to learn — it's a layer you drop on top of the ones you have. Point
+         it at <b>Claude Code</b>, <b>Codex</b>, <b>Antigravity</b>, <b>MiniMax</b>, or anything that runs,
+         and program their teamwork from one place. Swap between them without touching your wiring.</p>
+      <p class="tag">→ A plugin for your coding agent — not a replacement for it.</p>
+      <p class="cave-note"><b>CAVE</b> = Coding Agent Virtualization Environment. cave-teams runs your
+         agents inside it, as teams you can program.</p>
+    </div>
+    <pre class="code"><span class="c"># same wiring — any agent underneath</span>
+team = claude_code <span class="o">|</span> codex <span class="o">|</span> minimax
+ship = plan <span class="o">>></span> team <span class="o">>></span> review</pre>
+  </section>
+
+  <!-- PROGRAM THE CONTROL FLOW (the message state machine) -->
+  <section class="feat alt">
+    <div class="copy">
+      <h2>Program the logic —<br/>not a markdown to-do list.</h2>
+      <p>Claude Code Teams runs on markdown: agents read files and pass them along in a fixed order set by
+         a prompt. You can't change the logic. cave-teams is a real control system — each agent runs
+         <i>only</i> when you say: after these two finish, only if there's budget left, only once a check
+         has passed. Any rule you can write, you can wire.</p>
+      <p class="pain-line"><s>agents shuffle files in a fixed order from markdown</s> → you program when each one runs</p>
+    </div>
+    <pre class="code"><span class="k">from</span> cave_teams <span class="k">import</span> when_flag, after, when
+
+<span class="c"># each agent runs only when its rule is true</span>
+team.add_condition(<span class="o">"publisher"</span>, when_flag(<span class="o">"approved"</span>))      <span class="c"># after approval</span>
+team.add_condition(<span class="o">"merge"</span>, after(<span class="o">"frontend"</span>, <span class="o">"backend"</span>))   <span class="c"># wait for both</span>
+team.add_condition(<span class="o">"worker"</span>, when(check_budget))         <span class="c"># any rule you write</span></pre>
+  </section>
+
+  <!-- HOW IT WORKS — 3 steps -->
+  <section class="band features-head">
+    <h2>One idea: <span class="grad">agents snap together</span>.</h2>
+    <p>Give every agent the same shape and they all click — in three steps.</p>
+  </section>
+  <div class="steps">
+    <div class="step">
+      <div class="n">01</div>
+      <h3>Wrap your agents</h3>
+      <p>Any model, any framework, any function. Turn each one into a building block — and bring whatever
+         you already use.</p>
+    </div>
+    <div class="step">
+      <div class="n">02</div>
+      <h3>Connect them</h3>
+      <p><code>&gt;&gt;</code> runs them in order. <code>|</code> runs them at the same time. That one line
+         is your whole team.</p>
+    </div>
+    <div class="step">
+      <div class="n">03</div>
+      <h3>Run it</h3>
+      <p>One call runs the team — and the wiring is checked before it executes, so it can't break in
+         surprising ways.</p>
+    </div>
+  </div>
+
+  <!-- WHAT IT DOES — the kill grid -->
+  <section class="band features-head" id="features">
+    <h2>What it does — <span class="grad">and the pain it kills</span>.</h2>
+    <p>Everything you hand-roll today, crossed off the list:</p>
+  </section>
+
+  <div class="kills">
+    <div class="kill"><div class="do">Program any control flow — when each agent runs</div><div class="pain">agents shuffle files in a fixed order from markdown</div></div>
+    <div class="kill"><div class="do">Use every team shape, and nest them</div><div class="pain">one fixed team pattern — take it or leave it</div></div>
+    <div class="kill"><div class="do">Wire a whole team in one line</div><div class="pain">hundreds of lines of callback glue</div></div>
+    <div class="kill"><div class="do">Change the team by changing a word</div><div class="pain">pulling the system apart to add one agent</div></div>
+    <div class="kill"><div class="do">Reuse a team inside a bigger team</div><div class="pain">nothing is reusable — rebuild every time</div></div>
+    <div class="kill"><div class="do">Save a proven team, reuse it across projects</div><div class="pain">rebuilding the same team from scratch in every repo</div></div>
+    <div class="kill"><div class="do">Run agents in order, or all at once</div><div class="pain">juggling parallel calls by hand</div></div>
+    <div class="kill"><div class="do">Loop an agent until a checker approves</div><div class="pain">retry loops that hang or never stop</div></div>
+    <div class="kill"><div class="do">Hold a contest and keep the best agent</div><div class="pain">no way to systematically improve agents</div></div>
+    <div class="kill"><div class="do">Use any model or agent you already have</div><div class="pain">locked into one vendor — rewrite to switch</div></div>
+    <div class="kill"><div class="do">Catch wiring bugs before you run</div><div class="pain">orchestration bugs you find in production</div></div>
+  </div>
+
+  <!-- FUNNEL SCROLL — each feature, plain -->
+  <section class="feat alt">
+    <div class="copy">
+      <h2>Wire a team<br/>in one line.</h2>
+      <p>Put a <code>&gt;&gt;</code> between two agents to run them one after another. Put a <code>|</code>
+         between them to run them at the same time. That's your whole pipeline — left to right, like a
+         sentence.</p>
+      <p class="pain-line"><s>hundreds of lines of callback glue</s> → one readable line</p>
+    </div>
+    <pre class="code">team = research <span class="o">>></span> (security <span class="o">|</span> perf) <span class="o">>></span> ship</pre>
+  </section>
+
+  <section class="feat">
+    <div class="copy">
+      <h2>Change it by<br/>changing a word.</h2>
+      <p>Your team <i>is</i> that line. Need another reviewer? Add it. Want to drop a step? Delete it.
+         Nothing else moves — no rewiring, no untangling.</p>
+      <p class="pain-line"><s>pulling the system apart to add one agent</s> → add a word</p>
+    </div>
+    <pre class="code">team = research <span class="o">>></span> (security <span class="o">|</span> perf <span class="o">|</span> redteam) <span class="o">>></span> ship</pre>
+  </section>
+
+  <section class="feat alt">
+    <div class="copy">
+      <h2>Reuse a team<br/>inside a bigger one.</h2>
+      <p>Built a great research-and-write crew? It plugs into your next project as a single piece —
+         because a team behaves exactly like one agent. Teams nest inside teams, as deep as you like.</p>
+      <p class="pain-line"><s>nothing is reusable — rebuild every time</s> → build once, reuse forever</p>
+    </div>
+    <pre class="code">crew   = research <span class="o">>></span> writer
+studio = manager <span class="o">>></span> crew <span class="o">>></span> publisher</pre>
+  </section>
+
+  <section class="feat">
+    <div class="copy">
+      <h2>Loop until<br/>it passes.</h2>
+      <p>Wrap a writer and a reviewer in a loop that keeps going until the reviewer approves — and is
+         guaranteed to stop, so it can never spin forever.</p>
+      <p class="pain-line"><s>retry loops that hang or never stop</s> → loops that always finish</p>
+    </div>
+    <pre class="code">draft = gate(writer <span class="o">>></span> reviewer)
+<span class="c"># repeats until the reviewer approves</span></pre>
+  </section>
+
+  <section class="feat alt">
+    <div class="copy">
+      <h2>Hold a contest,<br/>keep the winner.</h2>
+      <p>Run several agents on the same task, let a judge — or your users — pick the best, and breed
+         stronger agents from the winners. Improvement becomes a setting, not a research project.</p>
+      <p class="pain-line"><s>no way to systematically improve agents</s> → a contest you can run</p>
+    </div>
+    <pre class="code">best = tournament(agents, judge)</pre>
+  </section>
+
+  <section class="feat">
+    <div class="copy">
+      <h2>Bring your<br/>own agents.</h2>
+      <p>Wrap any model, any function, any framework you already use. Swap from one model to another
+         without touching a single line of your wiring. No lock-in, ever.</p>
+      <p class="pain-line"><s>locked into one vendor — rewrite to switch</s> → swap the model, keep the wiring</p>
+    </div>
+    <pre class="code">writer = AgentLink(<span class="o">"writer"</span>, model=<span class="o">"claude"</span>)
+writer = AgentLink(<span class="o">"writer"</span>, model=<span class="o">"gpt-4o"</span>)  <span class="c"># same team</span></pre>
+  </section>
+
+  <section class="feat alt">
+    <div class="copy">
+      <h2>Catch the bug<br/>before you run.</h2>
+      <p>The connectors come with tests that prove they behave: a loop always stops, "approved" really
+         means approved, and the order you write things doesn't quietly change the result. You find
+         orchestration bugs at your desk — not from an angry user.</p>
+      <p class="pain-line"><s>orchestration bugs you find in production</s> → caught before you ship</p>
+    </div>
+    <pre class="code"><span class="c"># proven by tests, every release</span>
+✓ every loop is guaranteed to stop
+✓ "approved" always means approved
+✓ rearranging steps never changes the result</pre>
+  </section>
+
+  <section class="feat">
+    <div class="copy">
+      <h2>Build once.<br/>Reuse it forever.</h2>
+      <p>Built a team that really works? Save it to your <b>proven library</b>. From then on you drop
+         that whole team into any project as a single building block — no copy-paste, no rebuilding the
+         same wiring in every repo. A team you trust becomes a part you reuse.</p>
+      <p class="pain-line"><s>rebuilding the same team from scratch in every repo</s> → build it once, reuse it everywhere</p>
+    </div>
+    <pre class="code"><span class="c"># build a team that works…</span>
+crew = research <span class="o">>></span> review <span class="o">>></span> ship
+
+<span class="c"># …save it to your proven library, then reuse it</span>
+<span class="c"># anywhere — as easily as calling one agent:</span>
+release = planner <span class="o">>></span> golden(<span class="o">"ship_crew"</span>) <span class="o">>></span> publish</pre>
+  </section>
+
+  <!-- ALL TOPOLOGIES -->
+  <section class="band features-head">
+    <h2>Every team shape. <span class="grad">Not one.</span></h2>
+    <p>Claude Code Teams gives you a single pattern. cave-teams gives you all of them — and they nest.</p>
+  </section>
+  <div class="chips topo">
+    <span class="chip">in order</span>
+    <span class="chip">all at once</span>
+    <span class="chip">branch on a condition</span>
+    <span class="chip">loop until it passes</span>
+    <span class="chip">wait for all (join)</span>
+    <span class="chip">shared workspace</span>
+    <span class="chip">a contest</span>
+    <span class="chip">evolve the winners</span>
+    <span class="chip">a whole world / simulation</span>
+    <span class="chip">teams inside teams</span>
+  </div>
+
+  <!-- GAMES & SIMULATIONS -->
+  <section class="band">
+    <h2>Run a <span class="grad">whole world</span> of agents.</h2>
+    <p>Spin up a world where agents craft, compete, and the best ones win — then the winners <b>evolve</b>
+       into stronger ones. Point it at any domain and it's two things at once: a way to <b>train a better
+       agent</b>, and a <b>lab</b> that discovers what actually works. Claude Code Teams has nothing like it.</p>
+    <div class="chips">
+      <span class="chip">agent economies</span>
+      <span class="chip">tournaments</span>
+      <span class="chip">evolving teams</span>
+      <span class="chip">simulations</span>
+      <span class="chip">games</span>
+    </div>
+  </section>
+
+  <!-- GET STARTED -->
+  <section class="band features-head" id="start">
+    <h2>Get started in <span class="grad">a few lines</span>.</h2>
+    <p>Open source. MIT. One tiny dependency — nothing else to set up.</p>
+  </section>
+  <div class="get">
+    <pre class="code"><span class="k">from</span> cave_teams <span class="k">import</span> AgentLink
+
+team   = AgentLink(<span class="o">"research"</span>) <span class="o">>></span> AgentLink(<span class="o">"write"</span>)
+result = <span class="k">await</span> team.execute({<span class="o">"goal"</span>: <span class="o">"..."</span>})</pre>
+    <div class="install"><pre><span class="c"># soon</span>
+pip install cave-teams</pre></div>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">★ Star on GitHub</a>
+      <a class="btn ghost" href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">Read the docs →</a>
+    </div>
+  </div>
+
+  <!-- FAQ -->
+  <section class="band features-head" id="faq">
+    <h2>Questions.</h2>
+  </section>
+  <div class="faq">
+    <div class="qa">
+      <p class="q">How is this different from Claude Code Teams?</p>
+      <p class="a">Claude Code Teams is built into one tool, and you can't program how the agents coordinate
+         — you get what it ships. cave-teams lets you <b>program</b> the whole team flow with a DSL, and
+         works with <b>any</b> coding agent (Claude Code, Codex, Antigravity, MiniMax) — not just one. You
+         can build the same systems, and ones the built-in teams can't do at all.</p>
+    </div>
+    <div class="qa">
+      <p class="q">Does it work with Codex, Antigravity, MiniMax, or my own agent?</p>
+      <p class="a">Yes — that's the point. cave-teams is provider-agnostic. Anything that can run (a coding
+         agent, a model, a function, a shell command) becomes a building block, and you swap between them
+         without touching your wiring.</p>
+    </div>
+    <div class="qa">
+      <p class="q">How is this different from LangGraph, CrewAI, or AutoGen?</p>
+      <p class="a">Those are frameworks you build <i>inside</i>. cave-teams is a tiny set of connectors you
+         put <i>over</i> whatever agents you already have — <code>&gt;&gt;</code> and <code>|</code>, plus
+         tests that prove the wiring. No new runtime to adopt, nothing to rewrite.</p>
+    </div>
+    <div class="qa">
+      <p class="q">Do I have to use your agents?</p>
+      <p class="a">No. Wrap any model, any function, any framework. Swap from one model to another without
+         touching your wiring — that's the whole point.</p>
+    </div>
+    <div class="qa">
+      <p class="q">Can a team contain another team?</p>
+      <p class="a">Yes. A team behaves exactly like a single agent, so teams nest inside teams as deep as
+         you want — and anything you build is reusable in the next project.</p>
+    </div>
+    <div class="qa">
+      <p class="q">Is it production-ready?</p>
+      <p class="a">It's early and pre-1.0 — but the core is small, tested, and the wiring laws are
+         verified. MIT-licensed and self-contained, so you own every line.</p>
+    </div>
+    <div class="qa">
+      <p class="q">What does it depend on?</p>
+      <p class="a">One tiny zero-dependency package. That's the entire install — no database, no services,
+         no account.</p>
+    </div>
+  </div>
+
+  <!-- CLOSE -->
+  <section class="band close">
+    <h2>Program your agent teams.<br/>For any coding agent.</h2>
+    <p>The programmable, provider-agnostic version of Claude Code Teams — build the same systems, better.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">Get cave-teams</a>
+      <a class="btn ghost" href="#top">Back to top</a>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="foot">
+    <div class="col brandcol">
+      <a class="brand" href="#top">cave<span class="dot">·</span>teams</a>
+      <p>The programmable, provider-agnostic version of Claude Code Teams — a plugin for any coding agent.
+         CAVE = Coding Agent Virtualization Environment.</p>
+    </div>
+    <div class="col">
+      <h4>Product</h4>
+      <a href="#features">Features</a>
+      <a href="#start">Get started</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="col">
+      <h4>Developers</h4>
+      <a href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">License — MIT</a>
+    </div>
+  </div>
+  <div class="footbar">© 2026 cave-teams · MIT · built on universal-chain-ontology</div>
+</footer>
+
+</body>
+</html>

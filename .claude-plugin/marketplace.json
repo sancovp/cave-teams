@@ -1,0 +1,13 @@
+{
+  "name": "cave-teams",
+  "owner": { "name": "sancovp", "url": "https://github.com/sancovp" },
+  "plugins": [
+    {
+      "name": "cave-teams",
+      "source": "./plugin",
+      "version": "0.1.0",
+      "description": "Program agent teams for any coding agent — the programmable, provider-agnostic version of Claude Code Teams. Compose agents with a tiny DSL (>> and |), every topology (branch/gate/dag/tournament/evolve/season/world), a programmable message state machine, and a proven-team (golden) library. CAVE = Coding Agent Virtualization Environment.",
+      "keywords": ["agents", "multi-agent", "agent-teams", "orchestration", "claude-code", "dsl", "cave", "provider-agnostic"]
+    }
+  ]
+}
