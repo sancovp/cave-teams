@@ -152,10 +152,10 @@ team.add_condition(<span class="o">"worker"</span>, when(check_budget))         
   <!-- FUNNEL SCROLL — each feature, plain -->
   <section class="feat alt">
     <div class="copy">
-      <h2>Wire a team<br/>in one line.</h2>
-      <p>Put a <code>&gt;&gt;</code> between two agents to run them one after another. Put a <code>|</code>
-         between them to run them at the same time. That's your whole pipeline — left to right, like a
-         sentence.</p>
+      <h2>Your whole team,<br/>one readable line.</h2>
+      <p>Today you wire agents by hand — callbacks, queues, a "manager" that just shuffles files around.
+         Imagine writing the entire team as one line you can read out loud: research, then security and
+         perf at the same time, then ship. The plumbing just… disappears.</p>
       <p class="pain-line"><s>hundreds of lines of callback glue</s> → one readable line</p>
     </div>
     <pre class="code">team = research <span class="o">>></span> (security <span class="o">|</span> perf) <span class="o">>></span> ship</pre>
@@ -163,9 +163,10 @@ team.add_condition(<span class="o">"worker"</span>, when(check_budget))         
 
   <section class="feat">
     <div class="copy">
-      <h2>Change it by<br/>changing a word.</h2>
-      <p>Your team <i>is</i> that line. Need another reviewer? Add it. Want to drop a step? Delete it.
-         Nothing else moves — no rewiring, no untangling.</p>
+      <h2>And it stays that<br/>simple as you grow.</h2>
+      <p>Six months in, most agent systems are a tangle nobody dares touch. Picture yours still being one
+         line — add a reviewer by adding a word, drop a step by deleting it. It never becomes the mess
+         you're afraid to open.</p>
       <p class="pain-line"><s>pulling the system apart to add one agent</s> → add a word</p>
     </div>
     <pre class="code">team = research <span class="o">>></span> (security <span class="o">|</span> perf <span class="o">|</span> redteam) <span class="o">>></span> ship</pre>
@@ -173,9 +174,10 @@ team.add_condition(<span class="o">"worker"</span>, when(check_budget))         
 
   <section class="feat alt">
     <div class="copy">
-      <h2>Reuse a team<br/>inside a bigger one.</h2>
-      <p>Built a great research-and-write crew? It plugs into your next project as a single piece —
-         because a team behaves exactly like one agent. Teams nest inside teams, as deep as you like.</p>
+      <h2>Nothing you build<br/>is ever a dead end.</h2>
+      <p>You're used to throwing work away — a great crew trapped in an old repo. Now picture every team
+         you build snapping into the next one as a single piece, nesting as deep as you want. A team
+         becomes a part; a part becomes a bigger machine.</p>
       <p class="pain-line"><s>nothing is reusable — rebuild every time</s> → build once, reuse forever</p>
     </div>
     <pre class="code">crew   = research <span class="o">>></span> writer
@@ -184,9 +186,10 @@ studio = manager <span class="o">>></span> crew <span class="o">>></span> publis
 
   <section class="feat">
     <div class="copy">
-      <h2>Loop until<br/>it passes.</h2>
-      <p>Wrap a writer and a reviewer in a loop that keeps going until the reviewer approves — and is
-         guaranteed to stop, so it can never spin forever.</p>
+      <h2>Walk away. Come back<br/>to work that passed.</h2>
+      <p>Right now you re-run and re-read everything yourself, or you watch it ship something half-right.
+         Imagine closing the laptop while a writer and a reviewer loop until the reviewer <i>actually</i>
+         approves — guaranteed to stop. You come back to work that's already good.</p>
       <p class="pain-line"><s>retry loops that hang or never stop</s> → loops that always finish</p>
     </div>
     <pre class="code">draft = gate(writer <span class="o">>></span> reviewer)
@@ -195,9 +198,10 @@ studio = manager <span class="o">>></span> crew <span class="o">>></span> publis
 
   <section class="feat alt">
     <div class="copy">
-      <h2>Hold a contest,<br/>keep the winner.</h2>
-      <p>Run several agents on the same task, let a judge — or your users — pick the best, and breed
-         stronger agents from the winners. Improvement becomes a setting, not a research project.</p>
+      <h2>Your agents compete<br/>to impress you.</h2>
+      <p>Today you get one mediocre attempt and tweak the prompt. Now imagine several agents racing on the
+         same task, a judge keeping only the best, and the winners breeding the next generation — sharper
+         every round. You stop improving them by hand; they improve to win your attention.</p>
       <p class="pain-line"><s>no way to systematically improve agents</s> → a contest you can run</p>
     </div>
     <pre class="code">best = tournament(agents, judge)</pre>
@@ -205,9 +209,10 @@ studio = manager <span class="o">>></span> crew <span class="o">>></span> publis
 
   <section class="feat">
     <div class="copy">
-      <h2>Bring your<br/>own agents.</h2>
-      <p>Wrap any model, any function, any framework you already use. Swap from one model to another
-         without touching a single line of your wiring. No lock-in, ever.</p>
+      <h2>On whatever models<br/>you already have.</h2>
+      <p>You're wary of betting on one vendor and getting trapped. Picture swapping Claude for GPT for a
+         local model without touching a line of your wiring — bring any agent, any function, any framework
+         you already use. The team is yours; the engine is just a setting.</p>
       <p class="pain-line"><s>locked into one vendor — rewrite to switch</s> → swap the model, keep the wiring</p>
     </div>
     <pre class="code">writer = AgentLink(<span class="o">"writer"</span>, model=<span class="o">"claude"</span>)
@@ -216,10 +221,10 @@ writer = AgentLink(<span class="o">"writer"</span>, model=<span class="o">"gpt-4
 
   <section class="feat alt">
     <div class="copy">
-      <h2>Catch the bug<br/>before you run.</h2>
-      <p>The connectors come with tests that prove they behave: a loop always stops, "approved" really
-         means approved, and the order you write things doesn't quietly change the result. You find
-         orchestration bugs at your desk — not from an angry user.</p>
+      <h2>Trust it<br/>before it runs.</h2>
+      <p>Orchestration bugs normally find you in production, from an angry user. Imagine instead that the
+         connectors come with proofs — a loop always stops, "approved" really means approved, the order
+         you write things never quietly changes the result. You catch it at your desk, or it was never there.</p>
       <p class="pain-line"><s>orchestration bugs you find in production</s> → caught before you ship</p>
     </div>
     <pre class="code"><span class="c"># proven by tests, every release</span>
@@ -230,10 +235,11 @@ writer = AgentLink(<span class="o">"writer"</span>, model=<span class="o">"gpt-4
 
   <section class="feat">
     <div class="copy">
-      <h2>Build once.<br/>Reuse it forever.</h2>
-      <p>Built a team that really works? Save it to your <b>proven library</b>. From then on you drop
-         that whole team into any project as a single building block — no copy-paste, no rebuilding the
-         same wiring in every repo. A team you trust becomes a part you reuse.</p>
+      <h2>Every win<br/>compounds forever.</h2>
+      <p>Every project, you rebuild the same crew from scratch and your best work dies with the repo. Now
+         imagine perfecting a team once, saving it to your <b>proven library</b>, and dropping it into
+         anything as one piece. Your library grows. Every project starts faster than the last. Your work
+         finally compounds.</p>
       <p class="pain-line"><s>rebuilding the same team from scratch in every repo</s> → build it once, reuse it everywhere</p>
     </div>
     <pre class="code"><span class="c"># build a team that works…</span>
@@ -427,8 +433,11 @@ pip install cave-teams</pre></div>
 
   <!-- CLOSE -->
   <section class="band close">
-    <h2>Program your agent teams.<br/>For any coding agent.</h2>
-    <p>The programmable, provider-agnostic version of Claude Code Teams — build the same systems, better.</p>
+    <h2>You're not prompting AI<br/>one task at a time anymore.</h2>
+    <p>One readable line. Work that's always reviewed. Agents that compete, improve themselves, and
+       compound — every project faster than the last. You describe what you want; a workforce you
+       architected builds it. <b>You architect; they build.</b> That's what it means to connect agents
+       like code.</p>
     <div class="cta">
       <a class="btn primary" href="https://github.com/sancovp/cave-teams" target="_blank" rel="noopener">Get cave-teams</a>
       <a class="btn ghost" href="#top">Back to top</a>
