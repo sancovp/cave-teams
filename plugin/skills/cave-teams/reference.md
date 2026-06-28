@@ -87,3 +87,43 @@ draft = gate(writer, VerdictGate(critic))   # SUCCESS  ⟺  the critic actually 
 - `a;(b+c) ≡ (a;b)+(a;c)` (distribution)
 
 Run the laws yourself: `test_algebra_laws.py`, `test_agent_proofs.py` in the cave-teams package.
+
+## Conditions — the message state machine
+
+Program WHEN each agent runs (the part Claude Code Teams can't do). The `Harness` fires an agent when
+it has a pending message AND its conditions over runtime flags pass:
+
+```python
+from cave_teams import Harness, when_flag, after, when
+h = Harness(team_dir, concurrent=False)
+h.add_condition("publisher", when_flag("approved"))     # only after approval
+h.add_condition("merge", after("frontend", "backend"))   # join — wait for both
+h.add_condition("worker", when(lambda hh, a: hh.get_flag("budget") > 0))
+```
+
+See the **cave-conditions** skill. This is the message *runtime*, not a composition Link.
+
+## The metacontrol function + golden library
+
+`cave()` drives the whole API from a data spec (NOT how you normally program — the DSL above is). It
+also holds the proven-team library:
+
+```python
+from cave_teams import cave, golden, scan_caves
+await cave({"op": "seq", "links": [...]}, context={"goal": "..."})   # run a team from data
+await cave(spec, name="ship_crew", save=True)                       # save  -> .cave/quarantine/
+await cave(goldenize=True, name="ship_crew")                        # approve -> .cave/golden/
+release = planner >> golden("ship_crew") >> publish                # reuse a proven team
+scan_caves(roots=["~/work"])                                        # find every .cave project
+```
+
+See the **cave** skill + its `reference.md`.
+
+## Per-pattern references
+
+Each pattern has its own `SKILL.md` (trigger + summary) and `reference.md` (full signature, params,
+the `cave()` op, gotchas):
+
+`cave-sequential` · `cave-parallel` · `cave-branch` · `cave-gate` · `cave-conditions` ·
+`cave-dovetail` · `cave-dag` · `cave-blackboard` · `cave-tournament` · `cave-evolve` ·
+`cave-season` · `cave-world` · `cave-sim` · `cave-metacog` — and **cave** for the metacontrol.
