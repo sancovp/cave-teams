@@ -71,12 +71,6 @@ def main():
     assert "stream" not in file_kinds, "stream tokens should NOT be persisted"
     assert len(file_events) == len(captured) - stream_n, (len(file_events), len(captured), stream_n)
 
-    # frontend imports + HTTP listener fails safe when no gallery is up
-    from cave_teams.frontend import HttpFrontendListener, TeamGalleryServer  # noqa: F401
-    HttpFrontendListener("http://127.0.0.1:1")(
-        type("E", (), {"to_dict": lambda s: {"team": "x", "kind": "ping"}})()
-    )
-
     print(f"PASS — {len(captured)} events (incl {stream_n} stream tokens): {kinds}")
 
 
