@@ -68,8 +68,11 @@ class Blackboard(Link):
                     mutated = self.mutator(state, name, action)         # mutator may be sync OR async
                     state = await mutated if inspect.isawaitable(mutated) else mutated
                     log.append({"round": rnd, "agent": name, "action": action, "ok": True})
-                except ValueError as e:                   # kill-criterion: rejected, logged, arena survives
-                    log.append({"round": rnd, "agent": name, "action": action, "ok": False, "error": str(e)})
+                except Exception as e:                    # kill-criterion: rejected, logged, arena survives
+                    # ValueError is the INTENDED rejection; any other exception (a buggy mutator's
+                    # KeyError/TypeError, an NPC blowing up) must ALSO not crash the arena.
+                    log.append({"round": rnd, "agent": name, "action": action, "ok": False,
+                                "error": str(e), "error_type": type(e).__name__})
 
             if self.adjudicator is not None:
                 inp = dict(ctx0)

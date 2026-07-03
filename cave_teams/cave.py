@@ -123,9 +123,20 @@ def _guard(route: dict) -> Callable[[Dict[str, Any]], bool]:
 
 # ── roll the native API up into the registry (the instruction set) ────────────
 register("skip", lambda s: skip())
-# an "agent" leaf is a REFERENCE to a cave agent by name (agents are cave's — registered as
-# CaveAgentEntry + given a runtime via set_runtime; the topology only references them by name).
-register("agent", lambda s: AgentRef(s.get("name", "agent")))
+
+
+def _agent_op(s: dict) -> Link:
+    """An "agent" leaf. With system_prompt/backend/model it is RUNNABLE (an AgentLink over an
+    example-instance runtime — cave() executes it directly). A bare {"op":"agent","name":...} is a
+    REFERENCE to a cave agent by name (AgentRef — compiled to team edges, run by run_team/cave)."""
+    if any(k in s for k in ("system_prompt", "backend", "model")):
+        from .links import AgentLink
+        return AgentLink(s.get("name", "agent"), system_prompt=s.get("system_prompt", ""),
+                         backend=s.get("backend", "minimax"), model=s.get("model"))
+    return AgentRef(s.get("name", "agent"))
+
+
+register("agent", _agent_op)
 register("seq", lambda s: seq(*_kids(s, "links"), name=s.get("name", "seq")))
 register("par", lambda s: par(*_kids(s, "links"), name=s.get("name", "par")))
 register("gate", lambda s: gate(
@@ -310,7 +321,7 @@ async def cave(
 ) -> dict:
     """Drive the whole native API from one door. Phases compose; never throws.
 
-    search=<q>            → RAG over the golden library (reuse a proven team)
+    search=<q>            → substring search over the golden library (reuse a proven team)
     goldenize=True,name=  → promote quarantine → golden (human approval = this call)
     save=True             → write the spec to .cave/quarantine/
     describe_only=True    → build + describe, do not run

@@ -5,7 +5,7 @@ Code Teams: wire agents together with a tiny DSL (`>>` and `|`), loop/contest/ev
 game-worlds. **CAVE = Coding Agent Virtualization Environment.**
 
 This plugin makes [cave-teams](https://github.com/sancovp/cave-teams) usable from inside Claude Code:
-it teaches Claude the API (via skills) and adds commands to scaffold and run agent teams.
+it teaches Claude the API via skills (one per pattern + the metacontrol).
 
 ## Install
 
@@ -19,12 +19,13 @@ pip install cave-teams
 
 **Skills** (Claude activates these automatically when you talk about agent teams):
 - `cave-teams` — the core model + the `>>` / `|` DSL + how to make and run a team (`reference.md` = full API)
-- `cave-teams-topologies` — the team patterns: `gate` (loop until approved), `tournament`, `blackboard`, `evolve`/`season`
-- `cave-teams-worlds` — `GameWorld` simulations, the Economic Crafter Sim, nesting worlds
+- `cave` — the metacontrol: drive ANY pattern from a data spec + the golden (proven-team) library
+- one skill per pattern: `cave-sequential` · `cave-parallel` · `cave-branch` · `cave-gate` ·
+  `cave-conditions` · `cave-dovetail` · `cave-dag` · `cave-blackboard` · `cave-tournament` ·
+  `cave-evolve` · `cave-season` · `cave-world` · `cave-sim` · `cave-metacog`
 
-**Commands:**
-- `/cave-team <describe a workflow>` — scaffold a runnable agent team from plain English
-- `/cave-run [file]` — run a cave-teams team and report the result
+**CLI:** `cave-teams <spec.json>` — the `cave()` metacontrol function on argv (build / run /
+describe / save / goldenize / search any team from a data spec). Installed with `pip install cave-teams`.
 
 ## The idea
 

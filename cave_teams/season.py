@@ -15,9 +15,19 @@ Season IS a Link, so it wraps a blackboard (season ∘ blackboard) and nests lik
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Callable, Dict, Optional
 
 from .chain_ontology import Link, LinkResult, LinkStatus
+
+
+def _snapshot(board: Dict[str, Any]) -> Dict[str, Any]:
+    """A history snapshot must be DEEP — a shallow dict() shares nested mutables (inventories,
+    sub-boards) with the live board, so later seasons silently rewrite the audit trail."""
+    try:
+        return copy.deepcopy(board)
+    except Exception:
+        return dict(board)
 
 
 class Season(Link):
@@ -42,7 +52,7 @@ class Season(Link):
             inp["season"] = s + 1
             r = await self.arena.execute(inp)
             board = dict((r.context or {}).get(self.state_key, board))
-            history.append({"season": s + 1, "board": dict(board)})
+            history.append({"season": s + 1, "board": _snapshot(board)})
             if s < self.seasons - 1 and self.advance is not None:     # boundary transition (not after the last)
                 board = dict(self.advance(board, s + 1))
 

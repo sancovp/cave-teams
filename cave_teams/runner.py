@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
@@ -54,14 +53,18 @@ def _responded(to: str, log: List[TeamMessage]) -> bool:
 
 def _allowed(to: str, edges, log: List[TeamMessage]) -> bool:
     """A teammate may be dispatched iff it has an edge whose guardrail-conditions are met by the
-    responses so far (the algebra compiled to guardrails) and it has not already responded."""
-    if _responded(to, log):
-        return False
+    responses so far (the algebra compiled to guardrails). Conditions enforce ORDER only —
+    re-dispatch to an agent that already responded is ALLOWED (revision loops, follow-up questions,
+    producer↔critic iteration are the leader's call; max_steps bounds the run)."""
     return any(e.to == to and all(c(log) for c in e.conditions) for e in edges)
 
 
 def _ready(edges, log) -> List[str]:
-    return sorted({e.to for e in edges if _allowed(e.to, edges, log)})
+    """Who can run now — agents that have not yet responded first (the natural next moves),
+    falling back to every condition-satisfied agent (re-dispatch targets)."""
+    ok = {e.to for e in edges if _allowed(e.to, edges, log)}
+    fresh = sorted(a for a in ok if not _responded(a, log))
+    return fresh or sorted(ok)
 
 
 def check_proposal(p: Proposal, team_agents: List[str], edges, log) -> Optional[str]:
@@ -156,10 +159,20 @@ async def run_team_async(team, task: str, leader: LeaderFn, teammate_runtimes: D
         emit({"kind": "dispatch", "data": {"to": proposal.to, "prompt": proposal.prompt,
               "path": proposal.path or task_path, "one_liner_to_show_user": proposal.one_liner}})
 
-        # in-process: inline the referenced file so a tool-less teammate has the content
+        # in-process: inline the referenced file so a tool-less teammate has the content —
+        # up to the pointer limit (mirrors DovetailModel.FILE_INLINE_LIMIT / never-truncate: big
+        # payloads stay a "read {path}" POINTER, never a slice).
         teammate_prompt = proposal.prompt
         if proposal.path and os.path.exists(proposal.path):
-            teammate_prompt += f"\n\n--- {os.path.basename(proposal.path)} ---\n" + open(proposal.path).read()
+            try:
+                with open(proposal.path, encoding="utf-8", errors="replace") as f:
+                    payload = f.read(10_001)
+            except OSError:
+                payload = None
+            if payload is not None and len(payload) <= 10_000:
+                teammate_prompt += f"\n\n--- {os.path.basename(proposal.path)} ---\n" + payload
+            else:
+                teammate_prompt += f"\n\nYou must read {proposal.path} before continuing"
         out, meta = await _run_teammate(teammate_runtimes.get(proposal.to), teammate_prompt)
 
         rpath = s.write_artifact(f"{proposal.to}-response-{len(log)}.txt", out)
@@ -195,14 +208,42 @@ def run_team(team, task: str, leader: LeaderFn, teammate_runtimes: Dict[str, Any
 
 
 # ── the REAL LLM leader: wrap a runtime (.run) so it reasons + emits a message we check ──────
+def _json_objects(text: str) -> List[str]:
+    """Every balanced top-level {...} span in `text`, string-aware (braces inside JSON strings and
+    escapes don't count) — so NESTED objects and prompts containing braces parse correctly."""
+    spans, depth, start, in_str, esc = [], 0, -1, False, False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"' and depth > 0:
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                spans.append(text[start:i + 1])
+    return spans
+
+
 def _parse_proposal(text: str) -> Proposal:
     """Extract the leader's message from its response: the last JSON object — {to, prompt[, path]}
     to dispatch, or {end, report} to finish. Unparseable → empty Proposal (the guardrail rejects it
     → the leader is re-prompted)."""
-    for blob in reversed(re.findall(r"\{[^{}]*\}", text or "", re.DOTALL)):
+    for blob in reversed(_json_objects(text or "")):
         try:
             obj = json.loads(blob)
         except Exception:
+            continue
+        if not isinstance(obj, dict):
             continue
         if obj.get("end"):
             return Proposal(end=True, report=str(obj.get("report", "")))
@@ -260,12 +301,12 @@ def file_leader(leader_runtime) -> LeaderFn:
                     f"your file-editing tool, then stop: {path}")
         out = await _ainvoke(leader_runtime, prompt)   # the leader writes the file via its tools
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8", errors="replace") as f:
                 p = _parse_proposal(f.read())
             if p.to or p.end:
                 return p
-        except Exception:
-            pass
+        except OSError:
+            pass  # the leader didn't write the file — fall through to parsing its reply
         # fallback: the leader may have emitted the JSON in its reply instead of writing the file
         return _parse_proposal(out if isinstance(out, str) else str(out))
     return propose

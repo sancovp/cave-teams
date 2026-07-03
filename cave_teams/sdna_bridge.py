@@ -39,11 +39,13 @@ class RunnableLink(Link):
         obj = self.obj
         try:
             if hasattr(obj, "run"):
-                res = await asyncio.to_thread(obj.run, content) if not _is_async(obj.run) else await obj.run(content)
+                res = await obj.run(content) if _is_async(obj.run) else await asyncio.to_thread(obj.run, content)
             elif hasattr(obj, "handle_message"):
-                res = await asyncio.to_thread(obj.handle_message, content)
+                fn = obj.handle_message
+                res = await fn(content) if _is_async(fn) else await asyncio.to_thread(fn, content)
             elif hasattr(obj, "send"):
-                r = await asyncio.to_thread(obj.send, content)
+                fn = obj.send
+                r = await fn(content) if _is_async(fn) else await asyncio.to_thread(fn, content)
                 res = getattr(r, "text", r)
             elif callable(obj):
                 res = obj(content)
@@ -82,10 +84,24 @@ def as_link(obj: Any, name: Optional[str] = None,
     return RunnableLink(name or getattr(obj, "name", "agent"), obj, input_key, output_key)
 
 
-# ---- optional SDNA constructors (import-guarded) ----
-SDNA_AVAILABLE = False
-try:  # pragma: no cover
-    from sdna.sdna import SDNAC, SDNAFlow, SDNAFlowchain, sdnac  # noqa: F401
-    SDNA_AVAILABLE = True
-except Exception:  # pragma: no cover
-    SDNAC = SDNAFlow = SDNAFlowchain = sdnac = None  # type: ignore
+# ---- optional SDNA constructors (LAZY import-guarded, PEP 562) ----
+# Loaded on first attribute access, NOT at module import — so `import cave_teams` never drags
+# sdna/heaven in as a side effect just because they happen to be installed (the standalone contract
+# protects against sdna being present-but-unwanted, not only absent).
+_SDNA_NAMES = ("SDNAC", "SDNAFlow", "SDNAFlowchain", "sdnac")
+
+
+def __getattr__(name: str):  # pragma: no cover
+    if name in _SDNA_NAMES:
+        try:
+            from sdna import sdna as _sdna_mod
+            return getattr(_sdna_mod, name)
+        except Exception:
+            return None
+    if name == "SDNA_AVAILABLE":
+        try:
+            import sdna.sdna  # noqa: F401
+            return True
+        except Exception:
+            return False
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

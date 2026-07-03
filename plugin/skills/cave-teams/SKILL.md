@@ -17,7 +17,7 @@ is a Link. A composition of Links *is* a Link, so teams nest inside teams foreve
 operators are enough to wire anything: `agent = team = world`.
 
 ```
-pip install cave-teams        # one small dependency (pydantic)
+pip install cave-teams        # pulls cave-harness (the CAVE runtime) + pydantic + universal-chain-ontology
 ```
 
 ## The two operators (the DSL)
@@ -49,9 +49,9 @@ A leaf reads its input from the context and writes its reply back. Pick the back
 from cave_teams import AgentLink            # a model agent (claude-p or minimax backend)
 a = AgentLink("name", "system prompt", backend="claude-p", model="claude-sonnet-4-6")
 b = AgentLink("name", "system prompt", backend="minimax",  model="MiniMax-M2.7-highspeed")
-
-from cave_teams import HeavenMiniMaxLink     # a real coding agent (Bash + file-edit tools by default)
-c = HeavenMiniMaxLink("coder", "Do the task with your tools.")
+# backend="minimax" runs a REAL coding agent (Bash + file-edit tools by default, via
+# cave_teams.examples.MiniMaxRuntime on heaven). Any custom backend: any object with .run(str):
+c = AgentLink("coder", runtime=my_runtime)
 
 from cave_teams import lift                  # wrap ANY runnable (a function/callable/agent) into a Link
 d = lift(my_existing_agent)                  # provider-agnostic: bring what you already use
@@ -72,13 +72,13 @@ start) and writes `output` + `output:<name>`.
 ## Compose beyond order/parallel
 
 ```python
-from cave_teams import gate, tournament, team, choice, dovetail
+from cave_teams import gate, tournament, team, choice, dove
 
-draft  = gate(writer >> critic)            # loop until the critic approves (always terminates)
+draft  = gate(writer, critic_gate)         # loop until the evaluator approves (always terminates)
 best   = tournament(candidates, judge)     # N agents compete, a judge picks the winner
 crew   = team(research >> writer)          # name a composition so it nests as one unit
 routed = choice([(is_code, coder), (is_doc, writer)], default=triage)   # branch on a condition
-piped  = a >> dovetail(D) >> b             # typed hand-off of named data between agents
+piped  = a >> dove(D) >> b                 # typed hand-off of named data between agents
 ```
 
 For the gate, the evaluator must set `context["approved"]` (wrap a critic agent so its verdict
@@ -93,6 +93,6 @@ data (and is the proven-team / golden library). Full API: `reference.md` in this
 | You used to… | With cave-teams |
 |---|---|
 | write callbacks/queues to wire agents | `a >> b` / `a \| b` |
-| hand-roll a retry/approval loop | `gate(worker >> critic)` |
+| hand-roll a retry/approval loop | `gate(worker, critic_gate)` |
 | be stuck with Claude Code Teams' fixed flow | program the flow yourself, for any agent |
 | be locked to one vendor | swap the model/agent, keep the wiring |

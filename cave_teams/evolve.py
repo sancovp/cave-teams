@@ -40,6 +40,8 @@ def evolve_dir(winner_dir: Union[str, Path], child_dir: Union[str, Path],
     """Copy a winner's whole agent dir → child_dir (inherit the AIOS, incl. emergent structure), then
     remove its knowledge of previous sessions (the session-memory paths). Returns child_dir."""
     winner_dir, child_dir = Path(winner_dir), Path(child_dir)
+    if not winner_dir.is_dir():
+        raise FileNotFoundError(f"evolve_dir: winner dir does not exist: {winner_dir}")
     if child_dir.exists():
         shutil.rmtree(child_dir)
     shutil.copytree(winner_dir, child_dir)                       # inherit the evolved architecture
@@ -57,6 +59,9 @@ def evolve(winner_dirs: Sequence[Union[str, Path]], out_dir: Union[str, Path],
            prefix: str = "gen", wipe: Optional[Sequence[str]] = None) -> List[str]:
     """Reproduce a generation: copy each winner's dir into out_dir/{prefix}_{i} and wipe its session
     memory. Returns the child dirs — the next generation, born advanced (the dir) + memory-free."""
+    if not winner_dirs:
+        raise ValueError("evolve: no winners — an empty generation cannot reproduce "
+                         "(check the judge's scores / select_winners k)")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     return [evolve_dir(w, out / f"{prefix}_{i}", wipe=wipe) for i, w in enumerate(winner_dirs)]
@@ -64,7 +69,9 @@ def evolve(winner_dirs: Sequence[Union[str, Path]], out_dir: Union[str, Path],
 
 def select_winners(ranked: Sequence[Union[str, Tuple[Union[str, Path], float]]], k: int = 1) -> List[str]:
     """The selection step — top-k. In the real sim this IS the user's purchases (the external gate); here
-    a pluggable ranking. Accepts a list of dirs, or of (dir, score) pairs (sorted by score desc)."""
+    a pluggable ranking. Accepts a list of dirs, or of (dir, score) pairs (sorted by score desc).
+    TIES break by input order (stable sort) — with equal scores the earlier-listed dir survives;
+    pass a pre-shuffled/pre-ordered list if that bias matters."""
     if ranked and isinstance(ranked[0], (tuple, list)):
         return [str(d) for d, _ in sorted(ranked, key=lambda x: x[1], reverse=True)[:k]]
     return [str(d) for d in list(ranked)[:k]]

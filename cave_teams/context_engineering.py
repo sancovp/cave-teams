@@ -33,23 +33,41 @@ def weave_text(text: str, start: int, end: int) -> str:
     return "\n".join(text.splitlines()[start:end])
 
 
-# ── re-export SDNA's full context_engineering when present ──────────────────
-try:
-    from sdna.context_engineering import (  # noqa: F401
-        weave_context, inject_context, ContextEngineeringLib, get_lib,
-        WeaveContext, InjectContext, RunSequence, ActivateLoop, InjectMethod, TransportType,
-    )
-    CONTEXT_ENGINEERING_SOURCE = "sdna"
-except Exception:
-    CONTEXT_ENGINEERING_SOURCE = "native-only"
+# ── re-export SDNA's full context_engineering when present (LAZY, PEP 562) ──
+# Resolved on first attribute access, NOT at module import — importing this module (or cave_teams)
+# never drags sdna/heaven in as a side effect of them merely being installed.
+_SDNA_CE_NAMES = (
+    "weave_context", "inject_context", "ContextEngineeringLib", "get_lib",
+    "WeaveContext", "InjectContext", "RunSequence", "ActivateLoop", "InjectMethod", "TransportType",
+)
 
-    def inject_context(context: Dict[str, Any], method: str = "prepend") -> str:
-        """Fallback inject — composes the blocks (no live transport)."""
-        return compose_context(context, method=method)
 
-    def weave_context(source_id: str, start: int, end: int):  # type: ignore
-        """Fallback weave — requires a real session/transport; native-only build returns None."""
-        return None
+def _native_inject_context(context: Dict[str, Any], method: str = "prepend") -> str:
+    """Fallback inject — composes the blocks (no live transport)."""
+    return compose_context(context, method=method)
+
+
+def _native_weave_context(source_id: str, start: int, end: int):
+    """Fallback weave — requires a real session/transport; native-only build returns None."""
+    return None
+
+
+def __getattr__(name: str):
+    if name in _SDNA_CE_NAMES or name == "CONTEXT_ENGINEERING_SOURCE":
+        try:
+            from sdna import context_engineering as _ce
+            if name == "CONTEXT_ENGINEERING_SOURCE":
+                return "sdna"
+            return getattr(_ce, name)
+        except Exception:
+            if name == "CONTEXT_ENGINEERING_SOURCE":
+                return "native-only"
+            if name == "inject_context":
+                return _native_inject_context
+            if name == "weave_context":
+                return _native_weave_context
+            return None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

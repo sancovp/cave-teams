@@ -32,12 +32,16 @@ from .runner import (
     run_team, run_team_async, Proposal, check_proposal, llm_leader, file_leader,
 )
 
-# ── the chain-ontology substrate (standalone dep; vendored shim for now) ──────
+# ── the chain-ontology substrate (uco → sdna re-export → vendored) ────────────
 from .chain_ontology import (
     Link, LinkResult, LinkStatus, Chain, EvalChain, Compiler, ConfigLink, LinkConfig,
     CHAIN_ONTOLOGY_SOURCE,
 )
 from .concurrent import ConcurrentChain
+
+# ── leaf Links: a single agent as a Link + the any-runnable adapter ────────────
+from .links import AgentLink, input_from_context
+from .sdna_bridge import RunnableLink, as_link
 
 # ── the agent-composition ALGEBRA + topologies (what cave-teams MAKES) ────────
 from . import algebra, topologies, dsl
@@ -75,7 +79,15 @@ from .workflow import parallel, run_until, Memo, content_key, with_schema, Schem
 # (refactor, don't delete) until a confirmed cleanup. claude-p/minimax move to examples/ as cave
 # agents + set_runtime backends.
 
+try:  # single source of truth = pyproject; never a drifting literal
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("cave-teams")
+except Exception:  # not installed (running from a checkout)
+    __version__ = "0+unknown"
+
 __all__ = [
+    "__version__",
+    "AgentLink", "input_from_context", "RunnableLink", "as_link",
     "TeamMessage", "TeamDir", "DISPATCH", "RESPONSE", "FLAG", "DONE",
     "Condition", "Edge", "responded", "after", "when_flag", "when_message",
     "all_of", "any_of", "always", "register_condition", "get_condition", "registered_conditions",

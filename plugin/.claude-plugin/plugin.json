@@ -1,6 +1,6 @@
 {
   "name": "cave-teams",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Program agent teams for any coding agent — the programmable, provider-agnostic version of Claude Code Teams. Compose agents with a tiny DSL (>> and |), loop/contest/evolve topologies, and game-worlds. CAVE = Coding Agent Virtualization Environment.",
   "author": { "name": "sancovp" },
   "homepage": "https://github.com/sancovp/cave-teams",

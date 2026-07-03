@@ -8,8 +8,7 @@ Everything below is a `Link` (carrier of the algebra): anything with
 
 | Constructor | What it is |
 |---|---|
-| `AgentLink(name, system_prompt="", backend="minimax", model=None, input_key=None, output_key="output")` | A single model agent. `backend="claude-p"` → runs `claude -p` (Opus/Sonnet); `backend="minimax"` → MiniMax via the Anthropic-compatible API. |
-| `HeavenMiniMaxLink(name, system_prompt="", tools=None, max_tool_calls=25)` | A real coding agent on the heaven runtime. Default tools = `[BashTool, NetworkEditTool]` (runs bash, edits files). `tools=[]` for a text-only agent. |
+| `AgentLink(name, system_prompt="", backend="minimax", model=None, runtime=None, input_key=None, output_key="output")` | A single agent as a Link, over any `.run(str) -> str` runtime. `backend="claude-p"` → runs `claude -p` (`examples.ClaudePRuntime`); `backend="minimax"` → a REAL coding agent (Bash + file-edit tools by default, `examples.MiniMaxRuntime` on heaven). Pass `runtime=obj` to bring your own. |
 | `lift(obj)` / `as_link(obj)` | Wrap ANY runnable (a callable, a `.send`/`.run` object, an SDNA agent) into a Link — the provider-agnostic adapter. |
 
 ## Operators (the algebra)
@@ -35,7 +34,7 @@ Everything below is a `Link` (carrier of the algebra): anything with
 | `eval_chain(body, evaluator, max_cycles=3)` / `loop_refine(worker, critic)` | evaluator loop (the `gate` builder) |
 | `round_robin(links, rounds=1)` | turn-taking |
 | `router(routes, default=None)` | conditional branch (the `choice` builder) |
-| `blackboard(agents, mutator, deity)` | stigmergy arena: N agents ↔ shared state ↔ adjudicator |
+| `blackboard(agents, mutator, adjudicator=None, rounds=1)` | stigmergy arena: N agents ↔ shared state ↔ adjudicator |
 | `evolve(winners, out)` / `evolve_dir(...)` / `select_winners(...)` | genetic step: copy winners' dirs, wipe session memory, regrow |
 | `season(...)` / `carry_reset_ratchet(...)` | bounded epoch: carry / reset / ratchet the standard |
 | `crafter_sim(...)` | the Economic Crafter Sim: compete → user-buys → select → evolve |
@@ -88,20 +87,22 @@ draft = gate(writer, VerdictGate(critic))   # SUCCESS  ⟺  the critic actually 
 
 Run the laws yourself: `test_algebra_laws.py`, `test_agent_proofs.py` in the cave-teams package.
 
-## Conditions — the message state machine
+## Conditions — the message state machine (the GUARDRAILS)
 
-Program WHEN each agent runs (the part Claude Code Teams can't do). The `Harness` fires an agent when
-it has a pending message AND its conditions over runtime flags pass:
+Program WHEN each agent may be messaged (the part Claude Code Teams can't do). Teams run
+LEADER-DRIVEN: the leader proposes each message, and the conditions — compiled from the algebra by
+`compile_to_edges`, or hand-built — are the guardrails the proposal is checked against
+(`check_proposal`); an invalid message re-prompts the leader with the error and it self-fixes.
 
 ```python
-from cave_teams import Harness, when_flag, after, when
-h = Harness(team_dir, concurrent=False)
-h.add_condition("publisher", when_flag("approved"))     # only after approval
-h.add_condition("merge", after("frontend", "backend"))   # join — wait for both
-h.add_condition("worker", when(lambda hh, a: hh.get_flag("budget") > 0))
+from cave_teams import (Condition, Edge, responded, after, when_flag, when_message,
+                        all_of, any_of, always, register_condition, compile_to_edges, run_team)
+edges = compile_to_edges(fe | be) + [Edge(to="merge", conditions=[after("fe", "be")])]  # join
+# or compile the whole order from the algebra:  edges = compile_to_edges(seq(a, par(b, c), d))
 ```
 
-See the **cave-conditions** skill. This is the message *runtime*, not a composition Link.
+A condition is any `Callable[[List[TeamMessage]], bool]` over the team's message log. See the
+**cave-conditions** skill. These are guardrails on messages, not a mechanical dispatcher.
 
 ## The metacontrol function + golden library
 

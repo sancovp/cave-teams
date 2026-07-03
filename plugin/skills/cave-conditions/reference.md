@@ -1,38 +1,58 @@
-# Conditions / the message state machine (`Harness`) — reference
+# Conditions / the message state machine — reference
 
 ## Signature
 
 ```python
-from cave_teams import Harness, when_flag, when_not_flag, after, when, all_of, any_of
-Harness(team_dir: str, on_event: Optional[Callable] = None, concurrent: bool = True)
-h.add_condition(agent: str, cond)   # cond: Callable[[Harness, agent], bool]
-h.set_flag(name); h.get_flag(name)
+from cave_teams import (Condition, Edge, responded, after, when_flag, when_message,
+                        all_of, any_of, always, register_condition, get_condition,
+                        compile_to_edges, run_team, run_team_async, check_proposal, Proposal)
+
+Condition = Callable[[List[TeamMessage]], bool]      # a predicate over the team's message log
+Edge(to: str, conditions: List[Condition] = [])      # "may message `to` when ALL conditions hold"
+compile_to_edges(topology: Link) -> List[Edge]       # the algebra → the guardrails
+run_team(team, task, leader, teammate_runtimes, team_dir,
+         open_rules=None, session_id="session", on_event=None,
+         max_steps=100, max_fixes=3) -> dict
 ```
 
-## Parameters
+## Condition builders
 
-| param | meaning |
+| builder | meaning |
 |---|---|
-| `team_dir` | working dir for the team (messages/state/transcripts live here) |
-| `concurrent` | True = eligible agents fire on their own threads; False = deterministic single-thread (tests) |
-| `when_flag(name, value=True)` | fire only when flag == value |
-| `after(*agents)` | join/barrier — fire only after each named agent has completed (auto-flag `done:<agent>`) |
-| `when(pred)` | fire on any predicate `(harness, agent) -> bool` |
-| `all_of/any_of(*conds)` | combine conditions |
+| `responded(agent)` | True once `agent` has written a RESPONSE message |
+| `after(*agents)` | join/barrier — True once EVERY named agent has responded |
+| `when_flag(name, value=True)` | True when the latest FLAG message for `name` equals `value` |
+| `when_message(pred)` | True if ANY message matches `pred(msg)` — the open, Turing-complete check |
+| `all_of(*conds)` / `any_of(*conds)` | combine conditions |
+| `always()` | unconditional (the entry edge) |
+| `register_condition(name, cond)` / `get_condition(name)` | name conditions so team CONFIGS reference them |
 
-## Examples
+## How it enforces (the guardrail loop)
 
-```python
-h = Harness("/tmp/my-team", concurrent=False)
-h.add_agent("frontend", fe); h.add_agent("backend", be); h.add_agent("merge", mg)
-h.add_condition("merge", after("frontend", "backend"))   # wait for BOTH
-h.add_condition("publisher", when_flag("approved"))      # only after approval
-h.send_message("frontend", "...")   # control IN; events stream OUT via the EventBus
-```
+1. The LEADER (an intelligent, autonomous dovetail) proposes a message (`Proposal(to, prompt, path)`)
+   — writing it to the session's `leader_outbox` (`file_leader`) or replying JSON (`llm_leader`).
+2. `check_proposal` checks it: member of the team? conditions on its edge satisfied by the log?
+3. Invalid → the leader is re-prompted with the error `{e}` (max `max_fixes` per step) and self-fixes.
+4. Valid → delivered to `inbox/<teammate>/`, the teammate runs, and the leader is alerted with the
+   response PATH + how to check the work (history_id / transcript_path) + that step's `open_rules`.
+5. The leader sends the next message — or ENDS with a report.
+
+Re-dispatch to an agent that already responded is ALLOWED (revision loops, follow-ups) — conditions
+enforce ORDER only; `max_steps` bounds the run.
+
+## Two tiers of between-agent rules
+
+| tier | who checks | how |
+|---|---|---|
+| CLOSED-WORLD | cave-teams, mechanically | the `Edge.conditions` above — block + re-prompt |
+| OPEN-WORLD | the leader's intelligence | `open_rules={agent: ["rule", ...]}` on `run_team` — surfaced in the leader's alert, ASSUMED true when the leader invokes the next teammate |
 
 ## Notes
 
-**Not a `cave()` build-op.** The `Harness` is the message *runtime*, not a composition Link: an agent FIRES when it (a) has a pending message AND (b) passes its conditions over flags; a flag flip (or an agent finishing) re-evaluates who is eligible and fires them. This is the actor core that makes flow *programmable* (vs Claude Code Teams’ fixed markdown order). Every boundary streams through the EventBus (events OUT); `send_message` is control IN.
+**Not a `cave()` build-op.** Conditions are the message *state machine* (a separate runtime axis),
+not a composition Link. `gate`/`choice` do NOT compile to edges (the loop/branch is the LEADER's
+decision in a team run — `compile_to_edges` raises a TypeError telling you so); run those
+in-process (`await link.execute(...)` / `cave()`), or express the iteration as `open_rules`.
 
 ---
 Summary + triggers: `SKILL.md` in this folder. The language + full DSL: the **cave-teams** skill. Drive any pattern from data: the **cave** skill.

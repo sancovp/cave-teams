@@ -37,11 +37,35 @@ class AgentRef(Link):
 def _compile(link: Link, entry: List[Condition]) -> Tuple[List[Edge], List[str]]:
     """Return (edges, exit_agents). `entry` gates the first dispatch(es) of this subtree;
     `exit_agents` are who must respond before a following sibling may fire."""
-    if isinstance(link, AgentRef):
+    from .algebra import Subgraph, Skip, _DovetailTransform
+    from .links import AgentLink
+    from .topologies import Router
+    from .chain_ontology import EvalChain
+
+    if isinstance(link, (AgentRef, AgentLink)):    # a leaf agent — one edge
         return [Edge(to=link.name, conditions=list(entry))], [link.name]
 
     if isinstance(link, Subgraph):                 # team(G): inline the inner composition
         return _compile(link.inner, entry)
+
+    if isinstance(link, (Skip, _DovetailTransform)):
+        # identity / ctx-transform joints are TRANSPARENT to message flow: no agent to dispatch,
+        # no exit to wait on (a seq keeps threading the previous exits through them).
+        return [], []
+
+    if isinstance(link, EvalChain):
+        # NOTE ordering: EvalChain IS-A Chain — this check must precede the Chain branch, or the
+        # evaluator + loop would silently compile away (the old phantom-agent bug).
+        raise TypeError(
+            f"cannot compile gate/eval_chain '{link.name}' into leader-driven edges: the evaluator "
+            f"loop has no edge representation. Run it in-process (await link.execute / cave()), or "
+            f"express the iteration as leader open_rules and let the leader re-dispatch.")
+
+    if isinstance(link, Router):
+        raise TypeError(
+            f"cannot compile choice/router '{link.name}' into leader-driven edges: branching is the "
+            f"LEADER's decision in a team run. Give the leader the branch rule as an open_rule, or "
+            f"run the Router in-process (await link.execute / cave()).")
 
     if isinstance(link, ConcurrentChain):          # par: all children share the same entry gate
         edges: List[Edge] = []
@@ -63,11 +87,14 @@ def _compile(link: Link, entry: List[Condition]) -> Tuple[List[Edge], List[str]]
             exits = cx
         return edges, exits
 
-    # fallback: any Link carrying a .name is treated as an agent reference
-    name = getattr(link, "name", None)
-    if name:
-        return [Edge(to=name, conditions=list(entry))], [name]
-    raise TypeError(f"cannot compile {link!r} into message edges")
+    if hasattr(link, "build") and callable(link.build):   # a Team used as a node: inline its topology
+        return _compile(link.build(), entry)
+
+    # No silent fallback: an unknown Link must not become a phantom agent (an edge to a name that
+    # can never respond permanently blocks every downstream teammate).
+    raise TypeError(
+        f"cannot compile {type(link).__name__} {getattr(link, 'name', '')!r} into message edges — "
+        f"leaves must be AgentRef/AgentLink (or a Team/Subgraph/seq/par of them)")
 
 
 def compile_to_edges(topology: Link) -> List[Edge]:

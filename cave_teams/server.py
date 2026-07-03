@@ -97,19 +97,36 @@ class EphemeralTeamServer:
                         await asyncio.sleep(0.15)
             return StreamingResponse(gen(), media_type="text/event-stream")
 
-    def start(self) -> "EphemeralTeamServer":
+    def start(self, ready_timeout: float = 10.0) -> "EphemeralTeamServer":
+        """Start uvicorn in a thread and WAIT until it actually binds — a bind failure (port stolen
+        between _free_port() and uvicorn's bind, or a stale listener) surfaces here as an error
+        instead of the run proceeding against a server that isn't listening."""
+        import time
         import uvicorn
         cfg = uvicorn.Config(self.http.app, host=self.host, port=self.port, log_level="warning")
         self._server = uvicorn.Server(cfg)
         self._thread = threading.Thread(target=self._server.run, daemon=True)
         self._thread.start()
-        return self
+        deadline = time.time() + ready_timeout
+        while time.time() < deadline:
+            if self._server.started:
+                return self
+            if not self._thread.is_alive():
+                raise RuntimeError(
+                    f"team server failed to start on {self.host}:{self.port} (bind failure?)")
+            time.sleep(0.05)
+        raise RuntimeError(
+            f"team server did not become ready on {self.host}:{self.port} within {ready_timeout}s")
 
     def stop(self) -> None:
         if self._server is not None:
             self._server.should_exit = True
         if self._thread is not None:
             self._thread.join(timeout=5)
+            if self._thread.is_alive():
+                import warnings
+                warnings.warn(f"team server thread on {self.host}:{self.port} did not stop within "
+                              f"5s — leaked past teardown (daemon thread; dies with the process)")
 
 
 def _run_agent_inprocess(agent, content: str) -> str:

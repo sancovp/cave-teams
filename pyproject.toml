@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cave-teams"
-version = "0.2.0"
+version = "0.2.1"
 description = "Programmable, LEADER-DRIVEN agent teams on CAVE: a team leader (an intelligent dovetail) orchestrates teammates by writing message files, guard-railed by conditions on messages, on an ephemeral CAVE server. Compose teams with a tiny algebra; run ANY agent runtime (MiniMax/Claude shown). Requires the CAVE runtime."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,9 +28,13 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 # pip deps: cave-harness (the CAVE runtime — import name `cave`) + pydantic (the typed dovetail
-# model). The chain ontology is vendored. CAVE is imported lazily, so the package imports even
-# without it, but cave_team() needs the CAVE runtime (cave-harness) present.
-dependencies = ["cave-harness", "pydantic>=2"]
+# model) + universal-chain-ontology (the CANONICAL Link/Chain classes — depend-don't-vendor; the
+# vendored copy remains only as a last-resort fallback). CAVE is imported lazily, so the package
+# imports even without it, but cave_team() needs the CAVE runtime (cave-harness) present.
+dependencies = ["cave-harness", "pydantic>=2", "universal-chain-ontology>=0.1.0"]
+
+[project.scripts]
+cave-teams = "cave_teams.cli:main"
 
 [project.optional-dependencies]
 # The bare MiniMax / Anthropic-compatible backend needs the anthropic client.

@@ -10,10 +10,11 @@ description: Run agents that craft, compete, and evolve over generations — the
 ## Native API (how you program)
 
 ```python
-from cave_teams import crafter_sim
+from pathlib import Path
+from cave_teams import crafter_sim, AgentLink
 result = await crafter_sim(
     population_dirs=["seed1", "seed2"],
-    spawn=lambda d: HeavenMiniMaxLink(name=d, system_prompt="craft the best X"),
+    spawn=lambda d: AgentLink(Path(d).name, "craft the best X", backend="minimax"),
     judge=user_purchase_judge,
     generations=3)
 ```

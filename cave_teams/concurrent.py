@@ -11,9 +11,20 @@ inside their execute() to get real wall-clock parallelism; async leaves run conc
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import Any, Dict, Optional
 
 from .chain_ontology import Chain, Link, LinkResult, LinkStatus
+
+
+def _branch_ctx(base: Dict[str, Any]) -> Dict[str, Any]:
+    """A per-branch copy of the context. DEEP where possible — a shallow dict() shares every nested
+    mutable (lists/dicts) across concurrently-running branches, so one branch's in-place mutation
+    races every other. Falls back to shallow only for un-deepcopyable values (live runtimes etc.)."""
+    try:
+        return copy.deepcopy(base)
+    except Exception:
+        return dict(base)
 
 
 class ConcurrentChain(Chain):
@@ -31,7 +42,7 @@ class ConcurrentChain(Chain):
             return LinkResult(status=LinkStatus.SUCCESS, context=base)
 
         results = await asyncio.gather(
-            *[link.execute(dict(base)) for link in self.links],
+            *[link.execute(_branch_ctx(base)) for link in self.links],
             return_exceptions=True,
         )
 

@@ -59,6 +59,9 @@ async def crafter_sim(population_dirs: List[str],
                         "ranked": ranked, "winners": winners})
         if on_generation:
             on_generation(gen, ranked, winners)
+        if not winners:                    # extinct lineage — stop, don't loop forever on nothing
+            history[-1]["stopped"] = "no winners — lineage extinct"
+            break
         dirs = evolve(winners, str(Path(workdir) / f"gen{gen + 1}"))                    # copy dirs + wipe memory
 
     return {"lineage": dirs, "history": history, "best": best}

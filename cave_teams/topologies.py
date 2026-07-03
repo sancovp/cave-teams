@@ -103,12 +103,21 @@ class Router(Link):
 
     async def execute(self, context: Optional[Dict[str, Any]] = None, **kwargs):
         ctx = dict(context) if context else {}
-        for pred, link in self.routes:
+        guard_errors = []
+        for i, (pred, link) in enumerate(self.routes):
             try:
-                if pred(ctx):
-                    return await link.execute(ctx)
-            except Exception:
-                pass
+                hit = pred(ctx)
+            except Exception as e:
+                # a RAISING guard is not the same as a False guard — record it so a broken
+                # predicate (KeyError on a missing ctx field, …) is visible, then keep routing
+                guard_errors.append({"route": i, "link": getattr(link, "name", "?"), "error": str(e)})
+                continue
+            if hit:
+                if guard_errors:
+                    ctx["_router_errors"] = guard_errors
+                return await link.execute(ctx)
+        if guard_errors:
+            ctx["_router_errors"] = guard_errors
         if self.default is not None:
             return await self.default.execute(ctx)
         return LinkResult(status=LinkStatus.SUCCESS, context=ctx)

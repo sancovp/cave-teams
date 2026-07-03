@@ -9,18 +9,27 @@ canonical ontology the whole library builds on. cave-teams adds ConcurrentChain 
 """
 
 try:
-    # the REAL ontology — pure stdlib, but importing the submodule runs sdna/__init__ (heaven code,
-    # not a server). When present, SDNAC(Link)/SDNAFlow(Chain)/SDNAFlowchain(EvalChain) share THIS Link.
-    from sdna.chain_ontology import (  # noqa: F401
+    # the CANONICAL ontology — universal-chain-ontology (zero-dep). sdna.chain_ontology RE-EXPORTS
+    # these very classes, so SDNAC(Link)/SDNAFlow(Chain)/SDNAFlowchain(EvalChain) share THIS Link
+    # whenever sdna is present too — one Link across the ecosystem, and importing uco directly
+    # keeps `import cave_teams` from dragging sdna/heaven in as a side effect.
+    from uco.core import (  # noqa: F401
         LinkStatus, LinkResult, Link, Chain, EvalChain, Compiler, LinkConfig, ConfigLink,
     )
-    CHAIN_ONTOLOGY_SOURCE = "sdna"
+    CHAIN_ONTOLOGY_SOURCE = "uco"
 except Exception:
-    # standalone fallback — the vendored verbatim copy (identical ontology, zero coupling)
-    from ._chain_ontology_vendored import (  # noqa: F401
-        LinkStatus, LinkResult, Link, Chain, EvalChain, Compiler, LinkConfig, ConfigLink,
-    )
-    CHAIN_ONTOLOGY_SOURCE = "vendored"
+    try:
+        # sdna re-export path (same classes as uco; heavier import — heaven code runs)
+        from sdna.chain_ontology import (  # noqa: F401
+            LinkStatus, LinkResult, Link, Chain, EvalChain, Compiler, LinkConfig, ConfigLink,
+        )
+        CHAIN_ONTOLOGY_SOURCE = "sdna"
+    except Exception:
+        # standalone fallback — the vendored verbatim copy (identical ontology, zero coupling)
+        from ._chain_ontology_vendored import (  # noqa: F401
+            LinkStatus, LinkResult, Link, Chain, EvalChain, Compiler, LinkConfig, ConfigLink,
+        )
+        CHAIN_ONTOLOGY_SOURCE = "vendored"
 
 __all__ = [
     "LinkStatus", "LinkResult", "Link", "Chain", "EvalChain", "Compiler", "LinkConfig", "ConfigLink",

@@ -1,24 +1,38 @@
 ---
 name: cave-conditions
-description: Program WHEN each agent fires — the message state machine. Use to gate agents on runtime state: after these two finish, only if a flag/budget holds, only once a check passed — any rule you can write. THIS is what makes cave-teams programmable where Claude Code Teams' flow is fixed.
+description: Program WHEN each agent may be messaged — conditions on messages, the GUARDRAILS of a leader-driven team run. Use to gate agents on runtime state: after these two respond, only when a flag holds, any predicate over the message log. THIS is what makes cave-teams programmable where Claude Code Teams' flow is fixed.
 ---
 
-# Conditions — program WHEN each agent runs (the message state machine)
+# Conditions — program WHEN each agent runs (the guardrails on messages)
 
-The `Harness` is an actor core: an agent FIRES when it (a) has a pending message AND (b) passes its conditions. Conditions are predicates over runtime FLAGS; a flag flip — or another agent finishing (auto-sets `done:<agent>`) — re-evaluates who is eligible and fires them. Conditions: `when_flag`, `when_not_flag`, `after` (join/barrier), `when` (any predicate), `all_of`, `any_of`.
+Teams run **LEADER-DRIVEN**: a leader agent proposes each message; cave-teams CHECKS the proposal
+against the conditions (the guardrails) before delivery. An invalid message is never delivered —
+the leader is re-prompted with the error string and self-fixes. Conditions are predicates over the
+team's MESSAGE LOG: `Condition = Callable[[List[TeamMessage]], bool]`.
 
 ## Native API (how you program)
 
 ```python
-from cave_teams import Harness, when_flag, after, when
-h = Harness(team_dir)
-h.add_condition("publisher", when_flag("approved"))        # only after approval
-h.add_condition("merge", after("frontend", "backend"))      # wait for BOTH (join)
-h.add_condition("worker", when(lambda hh, a: hh.get_flag("budget") > 0))  # any rule
-h.set_flag("approved")                                       # flip state → re-evaluate
+from cave_teams import (responded, after, when_flag, when_message, all_of, any_of, always,
+                        Edge, register_condition, compile_to_edges, run_team, check_proposal)
+
+edges = compile_to_edges(seq(a, par(b, c), d))      # the algebra compiles to the guardrails
+# or hand-build an edge:
+edges += [Edge(to="publisher", conditions=[when_flag("approved")])]     # only after approval
+edges += [Edge(to="merge", conditions=[after("frontend", "backend")])]  # join — wait for BOTH
+edges += [Edge(to="worker", conditions=[when_message(lambda m: m.kind == "flag")])]  # any rule
+
+register_condition("qa_passed", after("qa"))         # name a condition for team configs
 ```
 
-**Not a `cave()` build-op** — the Harness is the message *runtime* (it gates delivery between persistent agents), not a composition Link. Use it directly. A pipeline/join/branch is just conditions + flags + message wiring.
+`run_team(team, task, leader, runtimes, team_dir)` enforces them: `check_proposal` blocks a message
+to a non-member or an out-of-turn agent and re-prompts the leader with `{e}`. Re-dispatch to an
+agent that already responded IS allowed (revision loops are the leader's call) — conditions
+enforce ORDER, the leader decides.
+
+**Not a `cave()` build-op** — conditions are the message state machine (a separate runtime axis),
+not a composition Link. Two tiers: these CLOSED-WORLD checks (enforced mechanically) + OPEN-WORLD
+`open_rules={agent: [str]}` (surfaced to the leader, assumed true when it proceeds).
 
 ## See also
 `cave-branch` · `cave-gate` · `cave-teams`
