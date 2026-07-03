@@ -29,13 +29,17 @@ run_team(team, task, leader, teammate_runtimes, team_dir,
 
 ## How it enforces (the guardrail loop)
 
-1. The LEADER (an intelligent, autonomous dovetail) proposes a message (`Proposal(to, prompt, path)`)
-   — writing it to the session's `leader_outbox` (`file_leader`) or replying JSON (`llm_leader`).
+1. The LEADER (an intelligent, autonomous dovetail) proposes a message (`Proposal(to, prompt, path)`;
+   `to` is a name or a LIST — broadcast to some/all) — writing it to the session's `leader_outbox`
+   (`file_leader`) or replying JSON (`llm_leader`).
 2. `check_proposal` checks it: member of the team? conditions on its edge satisfied by the log?
+   not still in flight?
 3. Invalid → the leader is re-prompted with the error `{e}` (max `max_fixes` per step) and self-fixes.
-4. Valid → delivered to `inbox/<teammate>/`, the teammate runs, and the leader is alerted with the
-   response PATH + how to check the work (history_id / transcript_path) + that step's `open_rules`.
-5. The leader sends the next message — or ENDS with a report.
+4. Valid → delivered to `inbox/<teammate>/`, the teammates run as CONCURRENT tasks (they run while
+   the leader runs), and the leader is alerted as EACH finishes with the response PATH + how to
+   check the work (history_id / transcript_path) + that step's `open_rules` + `still_running`.
+5. The leader sends the next message, `{"wait": true}`s for the next in-flight finish — or ENDS
+   with a report (in-flight work is cancelled).
 
 Re-dispatch to an agent that already responded is ALLOWED (revision loops, follow-ups) — conditions
 enforce ORDER only; `max_steps` bounds the run.

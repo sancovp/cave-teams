@@ -15,6 +15,11 @@ Two tiers of between-agent rules:
   - OPEN-WORLD (`open_rules={agent: [str]}`, NOT enforced): intelligent-reliant rules only the leader
     can judge; cave-teams surfaces them and ASSUMES they hold when the leader invokes the next teammate.
 
+Dispatch is one / a SET / ALL (broadcast): `Proposal.to` is a name or a list. Teammates run as
+CONCURRENT tasks — they run while the leader runs — and the leader is alerted as EACH finishes
+(the alert carries `still_running`); it can `{"wait":true}` for the next finish, message others,
+or END (in-flight work is cancelled). Messaging a teammate that is still running is guardrail-blocked.
+
 The whole run executes in ONE event loop (so async runtimes share it).
 """
 from __future__ import annotations
@@ -32,13 +37,23 @@ from .wiring import compile_to_edges
 
 @dataclass
 class Proposal:
-    """What the leader proposes each step: a message to a teammate, or END (with a report)."""
-    to: str = ""
+    """What the leader proposes each step: a message to one teammate (`to="name"`) or a BROADCAST
+    to several (`to=["a","b"]`), a WAIT for the next in-flight teammate to finish, or END (report).
+    """
+    to: Any = ""               # str (one teammate) | list[str] (broadcast to some/all)
     prompt: str = ""
     path: str = ""
     one_liner: str = ""        # human-facing 1-line status for the dashboard (one_liner_to_show_user)
+    wait: bool = False         # nothing to send — wait for the next in-flight finish-alert
     end: bool = False
     report: str = ""
+
+
+def _targets(p: Proposal) -> List[str]:
+    """Normalize Proposal.to → a list of teammate names (str → [str]; list stays; empty → [])."""
+    if isinstance(p.to, str):
+        return [p.to] if p.to else []
+    return [str(t) for t in (p.to or [])]
 
 
 # A leader: given the run context (task, history, last alert, any error), propose the next message.
@@ -67,19 +82,30 @@ def _ready(edges, log) -> List[str]:
     return fresh or sorted(ok)
 
 
-def check_proposal(p: Proposal, team_agents: List[str], edges, log) -> Optional[str]:
+def check_proposal(p: Proposal, team_agents: List[str], edges, log,
+                   in_flight: Optional[set] = None) -> Optional[str]:
     """THE GUARDRAIL. Returns an error string `{e}` if the proposal is invalid, else None."""
+    in_flight = in_flight or set()
     if p.end:
         return None
-    if not p.to:
-        return "You must name a teammate in 'to', or END the run."
-    if p.to not in team_agents:
-        return f"Agent '{p.to}' is not in this team. Members: {team_agents}."
-    if not _allowed(p.to, edges, log):
-        ready = _ready(edges, log)
-        if not ready:
-            return f"It isn't {p.to}'s turn, and no teammate is ready yet."
-        return f"It isn't {p.to}'s turn — these can run now: {ready}. Message one of them."
+    if p.wait:
+        if not in_flight:
+            return "Nothing is running — there is no one to wait for. Dispatch a teammate or END."
+        return None
+    targets = _targets(p)
+    if not targets:
+        return "You must name a teammate in 'to' (a name, or a list to broadcast), or END the run."
+    for t in targets:
+        if t not in team_agents:
+            return f"Agent '{t}' is not in this team. Members: {team_agents}."
+        if t in in_flight:
+            return (f"'{t}' is STILL RUNNING — wait for its result ({{\"wait\": true}}) or message "
+                    f"someone else.")
+        if not _allowed(t, edges, log):
+            ready = [a for a in _ready(edges, log) if a not in in_flight]
+            if not ready:
+                return f"It isn't {t}'s turn, and no teammate is ready yet."
+            return f"It isn't {t}'s turn — these can run now: {ready}. Message one of them."
     return None
 
 
@@ -126,43 +152,13 @@ async def run_team_async(team, task: str, leader: LeaderFn, teammate_runtimes: D
     log: List[TeamMessage] = []
     transcript: List[dict] = []
     last_alert: Optional[dict] = None
+    pending: Dict[str, asyncio.Task] = {}     # in-flight teammates (they run WHILE the leader runs)
 
-    for _ in range(max_steps):
-        ctx = {"task": task, "task_path": task_path, "team_agents": team_agents,
-               "outbox": str(s.outbox), "log": [m.to_dict() for m in log],
-               "error": None, "alert": last_alert}
-
-        # the leader proposes; on a guardrail error, re-prompt with {e} so the LLM self-fixes
-        proposal = await _propose(leader, ctx)
-        err = check_proposal(proposal, team_agents, edges, log)
-        fixes = 0
-        while err is not None and fixes < max_fixes:
-            fixes += 1
-            transcript.append({"blocked": err, "proposal": {"to": proposal.to, "end": proposal.end}})
-            emit({"kind": "blocked", "data": {"error": err}})
-            proposal = await _propose(leader, dict(ctx, error=err))
-            err = check_proposal(proposal, team_agents, edges, log)
-        if err is not None:
-            return {"ok": False, "error": f"leader could not produce a valid message: {err}",
-                    "transcript": transcript, "messages": [m.to_dict() for m in s.read_log()]}
-
-        if proposal.end:
-            emit({"kind": "report", "data": {"text": proposal.report}})
-            return {"ok": True, "report": proposal.report, "transcript": transcript,
-                    "messages": [m.to_dict() for m in s.read_log()]}
-
-        # VALID → by invoking this teammate the leader ASSERTS the open-world rules for the prior step
-        dmsg = TeamMessage(frm="leader", to=proposal.to, kind=DISPATCH,
-                           path=proposal.path or task_path, text=proposal.prompt)
-        s.deliver(dmsg)          # guardrail passed → copy into the teammate's inbox + log
-        log.append(dmsg)
-        emit({"kind": "dispatch", "data": {"to": proposal.to, "prompt": proposal.prompt,
-              "path": proposal.path or task_path, "one_liner_to_show_user": proposal.one_liner}})
-
+    def _teammate_prompt(proposal: Proposal) -> str:
         # in-process: inline the referenced file so a tool-less teammate has the content —
         # up to the pointer limit (mirrors DovetailModel.FILE_INLINE_LIMIT / never-truncate: big
         # payloads stay a "read {path}" POINTER, never a slice).
-        teammate_prompt = proposal.prompt
+        prompt = proposal.prompt
         if proposal.path and os.path.exists(proposal.path):
             try:
                 with open(proposal.path, encoding="utf-8", errors="replace") as f:
@@ -170,29 +166,93 @@ async def run_team_async(team, task: str, leader: LeaderFn, teammate_runtimes: D
             except OSError:
                 payload = None
             if payload is not None and len(payload) <= 10_000:
-                teammate_prompt += f"\n\n--- {os.path.basename(proposal.path)} ---\n" + payload
+                prompt += f"\n\n--- {os.path.basename(proposal.path)} ---\n" + payload
             else:
-                teammate_prompt += f"\n\nYou must read {proposal.path} before continuing"
-        out, meta = await _run_teammate(teammate_runtimes.get(proposal.to), teammate_prompt)
+                prompt += f"\n\nYou must read {proposal.path} before continuing"
+        return prompt
 
-        rpath = s.write_artifact(f"{proposal.to}-response-{len(log)}.txt", out)
-        rmsg = TeamMessage(frm=proposal.to, to="leader", kind=RESPONSE, path=rpath, text=out[:200])
+    async def _reap_one() -> dict:
+        """Wait for the NEXT in-flight teammate to finish; log its response and build the leader's
+        finish-alert: HOW to check the work (ids/metadata), the message PATH to read (NOT inlined),
+        and the OPEN-WORLD rules the leader must verify before the next step."""
+        done, _ = await asyncio.wait(set(pending.values()), return_when=asyncio.FIRST_COMPLETED)
+        name = next(n for n, t in pending.items() if t in done)
+        t = pending.pop(name)
+        try:
+            out, meta = t.result()
+        except Exception as e:               # a crashed runtime is a RESULT the leader must see
+            out, meta = f"ERROR: the teammate's runtime raised: {e}", {"error": str(e)}
+        rpath = s.write_artifact(f"{name}-response-{len(log)}.txt", out)
+        rmsg = TeamMessage(frm=name, to="leader", kind=RESPONSE, path=rpath, text=out[:200])
         s.log(rmsg)
         log.append(rmsg)
-        emit({"kind": "response", "data": {"frm": proposal.to, "text": out[:300], "one_liner_to_show_user": ""}})
-
-        # the teammate-finished REPORT to the leader: HOW to check the work (ids/metadata), the
-        # message PATH to read (NOT inlined), and the OPEN-WORLD rules the leader must verify next.
-        last_alert = {
-            "finished": proposal.to,
+        emit({"kind": "response", "data": {"frm": name, "text": out[:300], "one_liner_to_show_user": ""}})
+        alert = {
+            "finished": name,
             "message_path": rpath,
             "history_id": meta.get("history_id"),
             "transcript_path": meta.get("transcript_path"),
             "metadata": meta,
-            "open_rules": open_rules.get(proposal.to, []),
+            "open_rules": open_rules.get(name, []),
+            "still_running": sorted(pending),
         }
-        transcript.append({"dispatched": proposal.to, "alert": last_alert})
+        transcript.append({"finished": name, "alert": alert})
+        return alert
 
+    for _ in range(max_steps):
+        ctx = {"task": task, "task_path": task_path, "team_agents": team_agents,
+               "outbox": str(s.outbox), "log": [m.to_dict() for m in log],
+               "in_flight": sorted(pending), "error": None, "alert": last_alert}
+
+        # the leader proposes; on a guardrail error, re-prompt with {e} so the LLM self-fixes
+        proposal = await _propose(leader, ctx)
+        err = check_proposal(proposal, team_agents, edges, log, in_flight=set(pending))
+        fixes = 0
+        while err is not None and fixes < max_fixes:
+            fixes += 1
+            transcript.append({"blocked": err, "proposal": {"to": proposal.to, "end": proposal.end}})
+            emit({"kind": "blocked", "data": {"error": err}})
+            proposal = await _propose(leader, dict(ctx, error=err))
+            err = check_proposal(proposal, team_agents, edges, log, in_flight=set(pending))
+        if err is not None:
+            for t in pending.values():
+                t.cancel()
+            return {"ok": False, "error": f"leader could not produce a valid message: {err}",
+                    "transcript": transcript, "messages": [m.to_dict() for m in s.read_log()]}
+
+        if proposal.end:
+            if pending:                       # the leader ended the run — abandon in-flight work
+                transcript.append({"cancelled": sorted(pending)})
+                for t in pending.values():
+                    t.cancel()
+            emit({"kind": "report", "data": {"text": proposal.report}})
+            return {"ok": True, "report": proposal.report, "transcript": transcript,
+                    "messages": [m.to_dict() for m in s.read_log()]}
+
+        if proposal.wait:                     # nothing to send — block on the next finish-alert
+            last_alert = await _reap_one()
+            continue
+
+        # VALID → by invoking these teammates the leader ASSERTS the open-world rules for the prior
+        # step. Dispatch one / a set / all: each target starts as a concurrent task (async — the
+        # teammates run while the leader runs).
+        for tgt in _targets(proposal):
+            dmsg = TeamMessage(frm="leader", to=tgt, kind=DISPATCH,
+                               path=proposal.path or task_path, text=proposal.prompt)
+            s.deliver(dmsg)      # guardrail passed → copy into the teammate's inbox + log
+            log.append(dmsg)
+            emit({"kind": "dispatch", "data": {"to": tgt, "prompt": proposal.prompt,
+                  "path": proposal.path or task_path, "one_liner_to_show_user": proposal.one_liner}})
+            transcript.append({"dispatched": tgt})
+            pending[tgt] = asyncio.create_task(
+                _run_teammate(teammate_runtimes.get(tgt), _teammate_prompt(proposal)))
+
+        # the leader is alerted as soon as ANY in-flight teammate finishes (the rest keep running;
+        # it can wait for them, message others, or end)
+        last_alert = await _reap_one()
+
+    for t in pending.values():
+        t.cancel()
     return {"ok": False, "error": "max_steps reached", "transcript": transcript,
             "messages": [m.to_dict() for m in s.read_log()]}
 
@@ -247,9 +307,12 @@ def _parse_proposal(text: str) -> Proposal:
             continue
         if obj.get("end"):
             return Proposal(end=True, report=str(obj.get("report", "")))
+        if obj.get("wait"):
+            return Proposal(wait=True)
         if "to" in obj:
-            return Proposal(to=str(obj.get("to", "")), prompt=str(obj.get("prompt", "")),
-                            path=str(obj.get("path", "")))
+            to = obj.get("to", "")
+            return Proposal(to=to if isinstance(to, list) else str(to),
+                            prompt=str(obj.get("prompt", "")), path=str(obj.get("path", "")))
     return Proposal()
 
 
@@ -265,12 +328,17 @@ def _leader_prompt(ctx: Dict[str, Any]) -> str:
         if a.get("open_rules"):
             line += f" Before you proceed, YOU must ensure: {a['open_rules']}."
         parts.append(line)
+    if ctx.get("in_flight"):
+        parts.append(f"STILL RUNNING: {ctx['in_flight']} — they work while you decide. You may "
+                     f'reply {{"wait":true}} to wait for the next one to finish.')
     if ctx.get("error"):
         parts.append(f"YOUR LAST MESSAGE WAS REJECTED: {ctx['error']}  Fix it and resend.")
     parts.append(
-        'Reply with ONE JSON object and nothing else. To dispatch: '
+        'Reply with ONE JSON object and nothing else. To dispatch one teammate: '
         '{"to":"<teammate>","prompt":"<instruction>","path":"<a file for them to use, e.g. a prior '
-        'teammate\'s output path, optional>"}. To finish: {"end":true,"report":"<final report>"}.')
+        'teammate\'s output path, optional>"}. To BROADCAST the same message to several at once: '
+        '"to":["a","b"]. To wait for an in-flight teammate: {"wait":true}. '
+        'To finish: {"end":true,"report":"<final report>"}.')
     return "\n".join(parts)
 
 
