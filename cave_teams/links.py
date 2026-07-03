@@ -2,7 +2,7 @@
 links.py — cave-teams LEAF Links: a single LLM agent as a chain-ontology Link.
 
 AgentLink wraps one RUNTIME (any object with `.run(str) -> str` — cave's set_runtime protocol, e.g.
-`cave_teams.examples.MiniMaxRuntime` / `ClaudePRuntime`) as a `Link`: execute(context) reads its
+`cave_teams.examples.MiniMaxRuntime`, the heaven path) as a `Link`: execute(context) reads its
 input from the context, runs ONE agent turn (off-thread if the runtime is sync, awaited if async),
 and writes the reply back into the context under `output_key` + the conventional `output` +
 `output:<name>` keys. So a single agent composes in Chain / ConcurrentChain / EvalChain exactly like
@@ -32,16 +32,21 @@ def input_from_context(ctx: Dict[str, Any], input_key: Optional[str]) -> str:
 
 
 def _make_runtime(name: str, system_prompt: str, backend: str, model: Optional[str]):
-    """Build an example-instance runtime for a backend name. minimax/claude-p are the demo
-    backends (examples/); ANY object with .run(str)->str works via AgentLink(runtime=...)."""
+    """Build the example-instance runtime (examples.MiniMaxRuntime — the heaven path, mirroring
+    OMRuntime). There is ONE runtime seam: provider=ANTHROPIC and the MODEL NAME selects the route
+    (a MiniMax model name → the MiniMax anthropic-compatible URL; a claude model name → Anthropic).
+    So 'minimax' vs 'claude' is just the default model, same runtime. ANY other backend: pass
+    runtime=<object with .run(str)> — cave-teams ships no other agent runtime."""
     if backend in ("minimax", "heaven"):
         from .examples.minimax_runtime import MiniMaxRuntime
         return MiniMaxRuntime(name=name, system_prompt=system_prompt, model=model)
-    if backend in ("claude-p", "claude", "claude_p", "opus"):
-        from .examples.claude_p_runtime import ClaudePRuntime
-        return ClaudePRuntime(name=name, system_prompt=system_prompt, model=model)
+    if backend in ("claude", "claude-p", "claude_p", "opus"):
+        from .examples.minimax_runtime import MiniMaxRuntime
+        import os as _os
+        return MiniMaxRuntime(name=name, system_prompt=system_prompt,
+                              model=model or _os.environ.get("CAVE_CLAUDE_MODEL") or "claude-sonnet-4-6")
     raise ValueError(f"unknown backend '{backend}' — pass runtime=<object with .run(str)>, "
-                     f"or use 'minimax' / 'claude-p'")
+                     f"or use 'minimax' / 'claude'")
 
 
 class AgentLink(Link):

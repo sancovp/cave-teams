@@ -8,7 +8,7 @@ Everything below is a `Link` (carrier of the algebra): anything with
 
 | Constructor | What it is |
 |---|---|
-| `AgentLink(name, system_prompt="", backend="minimax", model=None, runtime=None, input_key=None, output_key="output")` | A single agent as a Link, over any `.run(str) -> str` runtime. `backend="claude-p"` → runs `claude -p` (`examples.ClaudePRuntime`); `backend="minimax"` → a REAL coding agent (Bash + file-edit tools by default, `examples.MiniMaxRuntime` on heaven). Pass `runtime=obj` to bring your own. |
+| `AgentLink(name, system_prompt="", backend="minimax", model=None, runtime=None, input_key=None, output_key="output")` | A single agent as a Link, over any `.run(str) -> str` runtime. ONE example runtime ships (`examples.MiniMaxRuntime`, the heaven path — a REAL coding agent, Bash + file-edit tools by default): the MODEL NAME selects the route inside provider=ANTHROPIC, so `backend="minimax"` vs `backend="claude"` is just the default model. Pass `runtime=obj` to bring your own. |
 | `lift(obj)` / `as_link(obj)` | Wrap ANY runnable (a callable, a `.send`/`.run` object, an SDNA agent) into a Link — the provider-agnostic adapter. |
 
 ## Operators (the algebra)
