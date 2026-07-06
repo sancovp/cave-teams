@@ -40,6 +40,8 @@ cave-teams = "cave_teams.cli:main"
 # The bare MiniMax / Anthropic-compatible backend needs the anthropic client.
 # (The heaven backend, for real coding agents with tools, is provided by its environment.)
 minimax = ["anthropic>=0.40"]
+# generate_image() (cave_teams.primitives) needs the openai client + OPENAI_API_KEY; imported lazily.
+imagegen = ["openai"]
 
 [project.urls]
 Homepage = "https://github.com/sancovp/cave-teams"
@@ -47,3 +49,7 @@ Repository = "https://github.com/sancovp/cave-teams"
 
 [tool.setuptools.packages.find]
 include = ["cave_teams*"]
+
+[tool.setuptools.package-data]
+# server.py serves gallery.html (the /team live dashboard) from the package dir — it must ship.
+cave_teams = ["gallery.html"]

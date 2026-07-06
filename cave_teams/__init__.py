@@ -73,6 +73,10 @@ from .dovetail import DovetailModel, HermesConfigInput
 from . import workflow
 from .workflow import parallel, run_until, Memo, content_key, with_schema, SchemaError
 
+# ── image generation (ported forward from the pre-rebuild primitives.py — the ONE piece of the
+# old runtime nothing in the rebuild replaced; needs `pip install openai` + OPENAI_API_KEY) ────
+from .primitives import generate_image, ImageResult
+
 # NOTE (refactor, 2026-06-28): the old reimplemented runtime — primitives (claude -p / run_minimax),
 # conversation, harness, events, leader, orchestrator, runtime, jobworld, adaptor, frontend, links —
 # is SUPERSEDED by cave + the new spine and is no longer imported here. The files remain on disk
@@ -105,4 +109,5 @@ __all__ = [
     "cave", "golden", "register", "register_fn", "registered_ops", "registered_fns",
     "scan_caves", "scan_library", "build_from_spec", "DovetailModel", "HermesConfigInput",
     "workflow", "parallel", "run_until", "Memo", "content_key", "with_schema", "SchemaError",
+    "generate_image", "ImageResult",
 ]
