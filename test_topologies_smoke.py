@@ -24,6 +24,23 @@ class L(Link):
         return LinkResult(LinkStatus.SUCCESS, ctx)
 
 
+class Reducer(Link):
+    """Unlike `L`, actually reads its input the way a real single-input Link (e.g. AgentLink)
+    does — ctx.get('output') — and records what it received, so a test can assert the reducer's
+    INPUT contained every worker, not just that the keys survived somewhere in the final context."""
+    def __init__(self, name):
+        self.name = name
+        self.received = None
+
+    async def execute(self, context=None, **k):
+        ctx = dict(context) if context else {}
+        self.received = ctx.get("output") or ctx.get("goal") or ctx.get("input") or ""
+        seen.append(self.name)
+        ctx["output"] = f"[{self.name}]"
+        ctx[f"output:{self.name}"] = ctx["output"]
+        return LinkResult(LinkStatus.SUCCESS, ctx)
+
+
 class Approver(Link):
     """Evaluator: approves (sets ctx['approved']) on its 2nd call — a loop terminator."""
     def __init__(self, name, key="approved"):
@@ -53,10 +70,17 @@ async def main():
     print(f"  fan_out     parallel {el*1000:.0f}ms (ConcurrentChain) ✓")
 
     seen.clear()
-    r = await T.map_reduce([L("w1"), L("w2")], L("synth")).execute({"goal": "x"})
+    synth = Reducer("synth")
+    r = await T.map_reduce([L("w1"), L("w2")], synth).execute({"goal": "x"})
     assert "w1" in seen and "w2" in seen and seen[-1] == "synth", seen
     assert "output:w1" in r.context and "output:w2" in r.context, "reducer must see both workers"
-    print("  map_reduce  scatter→gather (reducer saw both workers) ✓", seen)
+    # the REAL check: a single-input reducer's own INPUT (not just the final merged context)
+    # must actually contain both workers — this is what silently broke before the gather fix
+    # (ConcurrentChain's last-branch-wins merge meant the reducer only ever saw ctx["output"]
+    # from whichever worker was LAST in the list, e.g. only "[w2]", never "[w1]").
+    assert synth.received is not None and "[w1]" in synth.received and "[w2]" in synth.received, \
+        f"reducer must RECEIVE both workers' output in its own input, got: {synth.received!r}"
+    print("  map_reduce  scatter→gather (reducer's INPUT actually contained both workers) ✓", seen)
 
     seen.clear()
     r = await T.loop_refine(L("worker"), Approver("critic")).execute({"goal": "x"})

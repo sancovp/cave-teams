@@ -11,13 +11,19 @@ from cave_teams.dovetail import DovetailModel, HermesConfigInput
 
 
 class MockLink(Link):
+    """`received` records the actual incoming context this link was invoked with, so a test can
+    assert on genuine per-branch input (not just presence of this link's own output key in the
+    final merged context — that alone can't distinguish a correct merge from a broken one when
+    each stub writes a distinctly-named key)."""
     def __init__(self, name, delay=0.0, out=None):
         self.name = name
         self.delay = delay
         self._out = out
+        self.received = None
 
     async def execute(self, context=None, **kwargs):
         ctx = dict(context) if context else {}
+        self.received = dict(ctx)
         if self.delay:
             await asyncio.sleep(self.delay)
         ctx[f"output:{self.name}"] = self._out if self._out is not None else f"[{self.name}]"
@@ -34,11 +40,15 @@ async def main():
 
     # 2. ConcurrentChain runs links in parallel (wall-clock < serial)
     t0 = time.time()
-    r = await ConcurrentChain("par", [MockLink("x", 0.1), MockLink("y", 0.1)]).execute({"goal": "x"})
+    lx, ly = MockLink("x", 0.1), MockLink("y", 0.1)
+    r = await ConcurrentChain("par", [lx, ly]).execute({"goal": "x"})
     el = time.time() - t0
     assert r.status == LinkStatus.SUCCESS and "output:x" in r.context and "output:y" in r.context
     assert el < 0.18, el                      # ~0.1s parallel; serial would be ~0.2s
     assert len(r.context["_concurrent"]) == 2
+    # each branch must have genuinely received the shared incoming context, unmutated by the
+    # other branch — proves the fan-out gave each link its own copy, not a corrupted/dropped one
+    assert lx.received == {"goal": "x"} and ly.received == {"goal": "x"}, (lx.received, ly.received)
     print(f"  ConcurrentChain parallel, {el*1000:.0f}ms for 2×100ms (serial≈200ms) ✓")
 
     # 3. Dovetail: dot-extract + validate + >10k pointer

@@ -40,10 +40,45 @@ def fan_out(*links: Link, name: str = "fan_out") -> ConcurrentChain:
 broadcast = fan_out
 
 
+class _AssembleWorkerOutputs(Link):
+    """Internal to synthesis_gate. ConcurrentChain's merge policy is last-branch-wins on the
+    single `output` key (deterministic by link-list order, not a race — see concurrent.py) — so
+    a plain single-input reducer (an AgentLink reading ctx["output"]) would silently see only the
+    LAST worker's output, not "every worker's output" as synthesis_gate has always documented.
+    This assembles every worker's `output:<name>` into one labeled block and writes it back as
+    `output`, so the documented contract is actually true for any reducer, not just one that
+    knows to dig through `_concurrent` itself."""
+
+    def __init__(self, worker_names: List[str], name: str = "assemble"):
+        self.worker_names = worker_names
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    async def execute(self, context: Optional[Dict[str, Any]] = None, **kwargs):
+        ctx = dict(context) if context else {}
+        parts = [f"=== {wname} ===\n{ctx.get(f'output:{wname}', '')}" for wname in self.worker_names]
+        assembled = "\n\n".join(parts)
+        ctx["output"] = assembled
+        ctx[f"output:{self._name}"] = assembled
+        return LinkResult(status=LinkStatus.SUCCESS, context=ctx)
+
+    def describe(self, depth: int = 0) -> str:
+        indent = "  " * depth
+        return f"{indent}assemble \"{self._name}\" ({len(self.worker_names)} worker outputs)"
+
+
 def synthesis_gate(workers: List[Link], reducer: Link, name: str = "synthesis") -> Chain:
-    """Scatter-gather / map-reduce: run `workers` in parallel, then `reducer` over the merged context.
-    The reducer sees every worker's output (output:<worker> keys + the `_concurrent` list)."""
-    return Chain(name, [ConcurrentChain(f"{name}:scatter", list(workers)), reducer])
+    """Scatter-gather / map-reduce: run `workers` in parallel, assemble every worker's output into
+    one labeled block, then `reducer` runs over that assembled text. The reducer sees every
+    worker's output (output:<worker> keys + the `_concurrent` list are still in context too, for a
+    reducer that wants to inspect them directly instead of the assembled text)."""
+    worker_names = [w.name for w in workers]
+    return Chain(name, [ConcurrentChain(f"{name}:scatter", list(workers)),
+                         _AssembleWorkerOutputs(worker_names, name=f"{name}:gather"),
+                         reducer])
 
 
 map_reduce = synthesis_gate

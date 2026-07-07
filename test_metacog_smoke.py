@@ -17,7 +17,8 @@ class Executor(Link):
 
 
 class Observer(Link):
-    """extracts one new domain skill from the executor's trace each cycle."""
+    """extracts one new domain skill each cycle (keyed by cycle number, not by reading the
+    executor's `work` value — this stub doesn't inspect the trace, it just names the skill)."""
     name = "observer"
 
     async def execute(self, context=None, **k):
