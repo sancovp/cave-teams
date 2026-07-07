@@ -41,6 +41,44 @@ Each `cave-<pattern>` skill gives that pattern's `op` shape. On a malformed spec
 names the exact skill to read. Construction errors (you built the spec wrong) are distinct from
 `runtime_error` (it ran and broke).
 
+## Ops are SLOTS you fill — not a closed menu
+
+An `op` is a NAME registered to a builder that returns a Link (a step). The canonical ops
+(`seq`/`par`/`gate`/`agent`/`tournament`/…) are just **pre-registered** builders. A slot can hold:
+
+```python
+{"op": "seq", "links": [                                  # canonical ops
+    {"op": "call", "import": "pkg.mod.fn",                # ANY imported function as a step, IO-mapped
+     "input_key": "goal", "output_key": "cleaned"},
+    {"op": "call", "fn": "my_registered_callable"},       # …or a register_fn'd callable, by name
+    {"op": "golden", "name": "ship_crew"},                # …or a saved config, loaded BY NAME
+]}
+```
+
+- **`call`** — put ANY function in a slot: `"import": "module.function"` (dynamic import) or
+  `"fn": "<register_fn name>"`; `input_key`/`output_key` map its IO. The code must already exist —
+  the spec points at it, it is not inlined (that's the difference from using the lib in Python).
+- **`golden`** — load a proven config by name as a step (see the library section below).
+- extend with `register(op, builder)` / `register_fn(name, callable)`; a goldenized team is an op too.
+
+### Two runtimes through the one door
+
+`cave()`'s default `execute` runs the composition **in-process** (a function threading a dict). To run
+the **leader-driven** plane instead (a leader routes messages between agents over files/inboxes with
+guardrail conditions — the `run_team`/`cave_team` runtime), use the **`team_run`** op:
+
+```python
+from cave_teams import register_fn
+register_fn("leader_rt", my_leader_runtime)      # runtimes are objects → reference them by name
+register_fn("maker_rt", my_maker_runtime)
+await cave({"op": "team_run",
+            "topology": {"op": "seq", "links": [{"op": "agent", "name": "maker"},
+                                                {"op": "agent", "name": "reviewer"}]},
+            "leader": "leader_rt", "runtimes": {"maker": "maker_rt", "reviewer": "..."},
+            "task": "build and review"})
+# leader_mode: "llm" (default, wraps a runtime as the leader) | "file" | "raw" (ref IS a LeaderFn)
+```
+
 ## The proven-team library (build once, reuse forever)
 
 Save a team you trust, then drop it into any project as one building block.

@@ -5,17 +5,26 @@ THIS IS NOT HOW YOU PROGRAM WITH cave-teams. You program with the native API —
 functions (`seq`, `par`, `gate`, `tournament`, `AgentLink`, `add_condition`, …) and the `>>` / `|`
 DSL. That is ergonomic and direct, and it is what the skills teach.
 
-`cave()` is the layer ABOVE: ONE super-compiled metacontrol function that can call EVERYTHING in the
-native API, in ANY sequence, from a plain-data spec. It is the universal driver / interpreter over
-the library — for serializing a team as data, driving the whole surface from one entry point, or
-letting a higher system (or an agent handed a spec) run any composition without importing the API.
+`cave()` is the layer ABOVE: ONE metacontrol function — a construct/execute chain interpreter whose
+tree is made of OP-SLOTS. An "op" is just a NAME registered to a builder that returns a Link (a step);
+`{"op":"seq",...}` = "look up the builder `seq`, hand it this node, get a Link." The canonical ops
+below are simply builders that ship PRE-REGISTERED — they are NOT a closed menu. A slot can hold:
+  • a canonical op (seq/par/gate/agent/tournament/…),
+  • ANY imported function you map IO to/from — `{"op":"call","import":"pkg.mod.fn"}` or a register_fn'd
+    callable `{"op":"call","fn":"name"}`,
+  • a saved config BY NAME — `{"op":"golden","name":"crew"}` loads a proven team as a step,
+  • a whole LEADER-DRIVEN team — `{"op":"team_run", ...}` (the message-state-machine runtime).
+You EXTEND the op set with `register(op, builder)` / `register_fn(name, callable)`; goldenizing a team
+makes it a callable op too.
 
-It dispatches through a REGISTRY (op-name → builder over the native API). You EXTEND the metacontrol
-surface by `register()`-ing canonical ops — which is how a goldenized team becomes callable through
-`cave()`. The native API is the instruction set; `cave()` is the interpreter; goldenizing extends
-the instruction set.
+TWO runtimes reachable through the door: `execute` runs the composition IN-PROCESS (a function, threading
+a dict — the default); the `team_run` op runs the LEADER-DRIVEN plane (a leader routes messages between
+agents over files/inboxes with guardrail conditions — the `run_team`/`cave_team` runtime).
 
 Sync, no daemon, no agent-that-builds-for-you: you (or your agent) write the spec; `cave()` runs it.
+The difference from using the lib directly: in Python you interleave arbitrary custom code between steps;
+in a `cave()` data-spec the code must already EXIST and be referenced (imported by path, or register_fn'd
+by name) — you don't inline it, you point at it.
 
 Spec node:  {"op": "<name>", ...args, nested specs under child keys}
     {"op":"seq","links":[<spec>,...]}                      run in order
@@ -23,6 +32,9 @@ Spec node:  {"op": "<name>", ...args, nested specs under child keys}
     {"op":"gate","body":<spec>,"evaluator":<spec>}         loop until approved
     {"op":"tournament","competitors":[<spec>,...],"judge":<spec>}
     {"op":"agent","name":"x","system_prompt":"...","backend":"minimax"}   # a leaf
+    {"op":"call","import":"pkg.mod.fn","input_key":"k","output_key":"o"}  # ANY function as a step
+    {"op":"golden","name":"crew"}                          # load a saved config BY NAME
+    {"op":"team_run","topology":<spec>,"leader":"<fn>","runtimes":{...},"task":"..."}  # leader-driven
 
 Uniform envelope (cave() never throws):
     {"status":"construction_error","error":...,"hint":"read the cave-<op> skill"}
@@ -37,7 +49,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from .chain_ontology import Link
+from .chain_ontology import Link, LinkResult, LinkStatus
 from .algebra import seq, par, gate, choice, skip, team, dovetail
 from .topologies import tournament, loop_refine, round_robin, synthesis_gate
 from .wiring import AgentRef
@@ -176,9 +188,93 @@ register("world", lambda s: GameWorld.from_spec(
     _fn(s.get("mutator"), "mutator", required=True),
     deity=_build(s["deity"]) if s.get("deity") else None))
 
+# ── the GENERIC op: ANY imported function as a chain step (map IO however you want) ───────────
+def _call_op(s: dict) -> Link:
+    """A step = ANY function. Import it by path (`"import":"pkg.mod.fn"`) or reference a register_fn'd
+    callable (`"fn":"name"`); wrap it as a Link with IO mapping (`input_key` selects the input from the
+    context, `output_key` stores the result). THIS is 'put any imported function in an op slot and map
+    its IO' — the code must already exist; the spec points at it, it is not inlined."""
+    from .sdna_bridge import as_link
+    ref_name = None
+    if s.get("import"):
+        import importlib
+        mod, _, fname = s["import"].rpartition(".")
+        if not mod:
+            raise ValueError(f"call: 'import' must be 'module.function', got {s['import']!r}")
+        fn = getattr(importlib.import_module(mod), fname)
+        ref_name = fname
+    elif s.get("fn"):
+        fn = _fn(s.get("fn"), "fn", required=True)
+        ref_name = s["fn"] if isinstance(s["fn"], str) else None
+    else:
+        raise ValueError("call: give 'import':'pkg.mod.fn' or 'fn':'<register_fn name>'")
+    name = s.get("name") or ref_name or getattr(fn, "__name__", "call")
+    return as_link(fn, name=name, input_key=s.get("input_key"), output_key=s.get("output_key", "output"))
+
+
+register("call", _call_op)
+
+
+# ── the OTHER runtime as an op: run a LEADER-DRIVEN team through the door ──────────────────────
+class _TeamRunLink(Link):
+    """Runs the LEADER-DRIVEN team plane (run_team: a leader routes messages between agents over
+    files/inboxes with guardrail conditions) as a Link, so `cave()` can reach BOTH runtimes. The
+    topology (AgentRefs) compiles to edges; the leader + teammate RUNTIMES are objects, so reference
+    them by name (register_fn'd). Returns the run envelope under ctx['team_result']."""
+
+    def __init__(self, topology, task, team_dir, leader_ref, runtime_refs,
+                 leader_mode="llm", max_steps=40, name="team_run"):
+        self.topology = topology
+        self.task = task
+        self.team_dir = team_dir
+        self.leader_ref = leader_ref
+        self.runtime_refs = runtime_refs
+        self.leader_mode = leader_mode
+        self.max_steps = max_steps
+        self.name = name
+
+    async def execute(self, context=None, **kwargs):
+        from .runner import run_team_async, llm_leader, file_leader
+        leader_rt = _fn(self.leader_ref, "leader", required=True)
+        # leader_mode: 'raw' = leader_rt IS a LeaderFn(ctx)->Proposal; 'llm'/'file' = wrap a runtime
+        leader_fn = (leader_rt if self.leader_mode == "raw"
+                     else file_leader(leader_rt) if self.leader_mode == "file"
+                     else llm_leader(leader_rt))
+        runtimes = {n: _fn(r, f"runtime '{n}'", required=True) for n, r in self.runtime_refs.items()}
+        topo = self.topology
+
+        class _SpecTeam:              # run_team_async only needs .build()
+            def build(self_):
+                return topo
+
+        res = await run_team_async(_SpecTeam(), self.task, leader_fn, runtimes, self.team_dir,
+                                   max_steps=self.max_steps)
+        ctx = dict(context) if context else {}
+        ctx["team_result"] = res
+        ctx["output"] = res.get("report") or res.get("error") or ""
+        return LinkResult(status=LinkStatus.SUCCESS if res.get("ok") else LinkStatus.ERROR,
+                          context=ctx, error=res.get("error"))
+
+    def describe(self, depth: int = 0) -> str:
+        return "  " * depth + f'team_run "{self.name}" [LEADER-DRIVEN] → ' + self.topology.describe(0).lstrip()
+
+
+def _team_run_op(s: dict) -> Link:
+    """Op: run the topology as a LEADER-DRIVEN team. `topology`=a spec of AgentRefs; `leader`=a
+    register_fn'd runtime (or LeaderFn if leader_mode='raw'); `runtimes`={agent: register_fn name}."""
+    team_dir = s.get("team_dir") or str(_cave_dir("runs") / s.get("name", "team_run"))
+    return _TeamRunLink(_build(s["topology"]), s.get("task", ""), team_dir,
+                        s.get("leader"), s.get("runtimes", {}),
+                        leader_mode=s.get("leader_mode", "llm"), max_steps=s.get("max_steps", 40),
+                        name=s.get("name", "team_run"))
+
+
+register("team_run", _team_run_op)
+
+
 # NOT cave() build-ops, by nature:
 #   `evolve` — a genetic FILESYSTEM op (returns child dirs, not a Link)
-#   `conditions`/Harness — the message state-machine, a separate runtime axis (not a Link)
+#   `conditions`/Harness — the message state-machine, a separate runtime axis (composed by team_run)
 # Both stay native-API utilities you call directly.
 
 
