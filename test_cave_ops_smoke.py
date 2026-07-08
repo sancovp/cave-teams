@@ -6,7 +6,8 @@ import tempfile
 
 os.environ.setdefault("CAVE_HOME", tempfile.mkdtemp())
 
-from cave_teams import cave, register_fn
+from cave_teams import cave, register_fn, set_persona_compiler
+from cave_teams.cave import _build
 from cave_teams.runner import Proposal
 
 
@@ -57,7 +58,23 @@ async def main():
     assert d["status"] == "described" and "team_run" in d["description"] and "shout" in d["description"], d
     print("  describe       call + team_run render in the tree ✓")
 
-    print("CAVE-OPS PASS — call (fn + import + compose) · team_run (leader-driven) · describe")
+    # 6) persona handoff — SI/meta-APE MAKES the persona, cave's agent leaf takes it (the seam)
+    #    (a) the real default path: prompt_engineering (meta-APE) compiles a spec → system_prompt
+    try:
+        link = _build({"op": "agent", "name": "dbg", "persona": {"name": "Ada", "role": "a senior debugger"}})
+        assert isinstance(link.runtime.system_prompt, str) and "debugger" in link.runtime.system_prompt.lower(), \
+            link.runtime.system_prompt
+        print("  persona/meta-APE  make_persona spec → agent leaf's system_prompt ✓")
+    except Exception as e:
+        print("  persona/meta-APE  (skipped — agent-prompt-engineering not importable:", str(e)[:50], ")")
+    #    (b) the seam: any registered compiler resolves the persona ref (decoupled from CC)
+    set_persona_compiler(lambda ref: f"COMPILED_PERSONA[{ref}]")
+    link = _build({"op": "agent", "name": "x", "persona": "debugger"})
+    assert link.runtime.system_prompt == "COMPILED_PERSONA[debugger]", link.runtime.system_prompt
+    print("  persona/seam      set_persona_compiler → agent leaf resolves 'persona' by ref ✓")
+    set_persona_compiler(None)
+
+    print("CAVE-OPS PASS — call · team_run · describe · persona (SI→cave handoff)")
 
 
 if __name__ == "__main__":

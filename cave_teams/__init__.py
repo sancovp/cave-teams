@@ -63,7 +63,7 @@ from .sim import crafter_sim
 # ── the CONFIG face: spec → topology + the golden library + metacontrol ───────
 from .cave import (
     cave, golden, register, register_fn, registered_ops, registered_fns,
-    scan_caves, scan_library, _build as build_from_spec,
+    scan_caves, scan_library, set_persona_compiler, _build as build_from_spec,
 )
 
 # ── the typed dovetail data-plane (⋈ — the SDNA-agent tier) ───────────────────
@@ -107,7 +107,7 @@ __all__ = [
     "season", "Season", "carry_reset_ratchet", "GameWorld", "world_as_agent", "npc_mutator",
     "metacog_shell", "MetacogShell", "evolve", "evolve_dir", "select_winners", "crafter_sim",
     "cave", "golden", "register", "register_fn", "registered_ops", "registered_fns",
-    "scan_caves", "scan_library", "build_from_spec", "DovetailModel", "HermesConfigInput",
+    "scan_caves", "scan_library", "set_persona_compiler", "build_from_spec", "DovetailModel", "HermesConfigInput",
     "workflow", "parallel", "run_until", "Memo", "content_key", "with_schema", "SchemaError",
     "generate_image", "ImageResult",
 ]

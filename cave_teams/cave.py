@@ -32,6 +32,7 @@ Spec node:  {"op": "<name>", ...args, nested specs under child keys}
     {"op":"gate","body":<spec>,"evaluator":<spec>}         loop until approved
     {"op":"tournament","competitors":[<spec>,...],"judge":<spec>}
     {"op":"agent","name":"x","system_prompt":"...","backend":"minimax"}   # a leaf
+    {"op":"agent","name":"x","persona":"<name|spec>"}      # persona MADE by SI/meta-APE → this leaf
     {"op":"call","import":"pkg.mod.fn","input_key":"k","output_key":"o"}  # ANY function as a step
     {"op":"golden","name":"crew"}                          # load a saved config BY NAME
     {"op":"team_run","topology":<spec>,"leader":"<fn>","runtimes":{...},"task":"..."}  # leader-driven
@@ -106,6 +107,41 @@ def _dovetail_model(d: dict) -> DovetailModel:
                          file_inputs=d.get("file_inputs", {}))
 
 
+# ── the persona SEAM: cave-teams composes AGENTS; SI/meta-APE MAKES them. The agent leaf's `persona`
+#    is resolved to a system_prompt through this pluggable compiler — a THIN handoff, NOT a dependency.
+#    SI : ChainCompiler :: cave() : cave-teams — two peer doors that meet here, at the agent boundary. ─
+_PERSONA_COMPILER: Optional[Callable[[Any], str]] = None
+
+
+def set_persona_compiler(fn: Optional[Callable[[Any], str]]) -> None:
+    """Register the persona compiler (the SI/meta-APE side): fn(persona_ref) -> system_prompt string.
+    Keeps cave-teams decoupled from ChainCompiler — cave() just calls whatever you register."""
+    global _PERSONA_COMPILER
+    _PERSONA_COMPILER = fn
+
+
+def _default_persona_compiler(ref: Any) -> str:
+    """Default (import-if-present, like chain_ontology's uco/sdna fallback): the meta-APE persona door.
+    dict ref → make_persona(spec); str ref → a saved persona template by name."""
+    from prompt_engineering import make_persona, render_template  # optional; only if installed
+    return make_persona(ref) if isinstance(ref, dict) else render_template(str(ref))
+
+
+def _compile_persona(ref: Any) -> str:
+    fn = _PERSONA_COMPILER
+    if fn is None:
+        try:
+            fn = _default_persona_compiler
+            out = fn(ref)
+        except Exception as e:
+            raise ValueError(
+                f"agent 'persona' needs a compiler: set_persona_compiler(fn), or install "
+                f"agent-prompt-engineering (the SI/meta-APE persona door). Underlying: {e}")
+    else:
+        out = fn(ref)
+    return out if isinstance(out, str) else str(out)
+
+
 def _build(spec: Any) -> Link:
     """Recursively build a native Link from a data spec by dispatching on spec['op']."""
     if isinstance(spec, Link):
@@ -138,12 +174,16 @@ register("skip", lambda s: skip())
 
 
 def _agent_op(s: dict) -> Link:
-    """An "agent" leaf. With system_prompt/backend/model it is RUNNABLE (an AgentLink over an
-    example-instance runtime — cave() executes it directly). A bare {"op":"agent","name":...} is a
-    REFERENCE to a cave agent by name (AgentRef — compiled to team edges, run by run_team/cave)."""
-    if any(k in s for k in ("system_prompt", "backend", "model")):
+    """An "agent" leaf. With system_prompt/persona/backend/model it is RUNNABLE (an AgentLink over an
+    example-instance runtime — cave() executes it directly). `persona` is an SI/meta-APE persona ref
+    (a name or a spec) compiled to the system_prompt via set_persona_compiler — the SI→cave handoff.
+    A bare {"op":"agent","name":...} is a REFERENCE to a cave agent by name (AgentRef — compiled to
+    team edges, run by run_team/team_run)."""
+    if any(k in s for k in ("system_prompt", "backend", "model", "persona")):
         from .links import AgentLink
-        return AgentLink(s.get("name", "agent"), system_prompt=s.get("system_prompt", ""),
+        system_prompt = _compile_persona(s["persona"]) if s.get("persona") is not None \
+            else s.get("system_prompt", "")
+        return AgentLink(s.get("name", "agent"), system_prompt=system_prompt,
                          backend=s.get("backend", "minimax"), model=s.get("model"))
     return AgentRef(s.get("name", "agent"))
 
