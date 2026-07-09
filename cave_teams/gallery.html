@@ -148,9 +148,42 @@
   .li.report { color:var(--accent); }
   @media (max-width:820px){ .app{ grid-template-columns:1fr; } .rail{ position:static; height:auto;
     border-left:none; border-top:1px solid var(--border); } }
+
+  /* ── multi-team SHELL — a collapsible team TREE (one node per active team; nested teams
+        indent under their parent) + one iframe per team on the right ── */
+  #teamTabs, #teamFrames { display:none; }
+  body.shell #dust, body.shell > header, body.shell > .app { display:none !important; }
+  body.shell #teamTabs {
+    display:flex; flex-direction:column; gap:1px; padding:8px 6px; overflow-y:auto;
+    position:absolute; inset:0 auto 0 0; width:220px; box-sizing:border-box;
+    background:#0a0a10; border-right:1px solid var(--border);
+  }
+  body.shell #teamFrames { display:block; position:absolute; inset:0 0 0 220px; }
+  .team-node { }
+  .team-row {
+    display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:6px; cursor:pointer;
+    color:var(--muted); font-size:13px; white-space:nowrap;
+  }
+  .team-row:hover { background:#14141e; }
+  .team-row.active { background:#1c1c28; color:#e5e7eb; }
+  .team-row .tog { width:12px; flex:none; text-align:center; opacity:.65; font-size:10px; transition:transform .12s; }
+  .team-row .tog.leaf { visibility:hidden; }
+  .team-row.collapsed .tog { transform:rotate(-90deg); }
+  .team-row .lbl { flex:1; overflow:hidden; text-overflow:ellipsis; }
+  .team-row .st { flex:none; font-size:11px; }
+  .team-kids.collapsed { display:none; }
+  .team-frame { position:absolute; inset:0; width:100%; height:100%; border:0; display:none; }
+  .team-frame.active { display:block; }
+  #teamEmpty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:14px; text-align:center; padding:20px; }
+  body.shell.has-teams #teamEmpty { display:none; }
 </style>
 </head>
 <body>
+<!-- SHELL mode (?live, no ?team): one tab + one iframe per active team_id, fed from a single
+     /team/events SSE (events postMessage'd to the matching child). Hidden unless body.shell. -->
+<nav id="teamTabs"></nav>
+<div id="teamFrames"><div id="teamEmpty">no teams running — a tab appears when a team starts</div></div>
 <canvas id="dust"></canvas>
 <header>
   <span class="logo">cave<span class="grad">·teams</span></span>
@@ -576,12 +609,93 @@ function runDemo(seq, i=0) {
 window.CT = { G, agents, handle };   // debug/inspection handle (used by capture + live poking)
 
 const params = new URLSearchParams(location.search);
-if (params.get('live') !== null) {
-  try {
-    const es = new EventSource('/team/events');
-    es.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) {} };
-    es.onerror = () => { statusText.textContent = 'disconnected'; };
-  } catch (e) { statusText.textContent = 'no stream'; runDemo(DEMO); }
+const CHILD_TEAM = params.get('team');   // this instance renders ONE team, driven by the shell's postMessage
+
+function teamIdOf(ev) { return ev.team_id || (ev.data && ev.data.team_id) || 'team'; }
+
+// ── SHELL: one SSE for ALL teams → a collapsible tree (nested teams indent under their
+//    parent via parent_id) + one iframe per team (postMessage feeds each child) ──
+function parentIdOf(ev) { return ev.parent_id || (ev.data && ev.data.parent_id) || null; }
+
+function initShell(url) {
+  document.body.classList.add('shell');
+  const tabsEl = document.getElementById('teamTabs');
+  const framesEl = document.getElementById('teamFrames');
+  const teams = {};           // id -> {id, row, kids, frame, ready, queue, label, done, parentId, depth}
+  let active = null;
+
+  const select = (id) => { active = id; for (const t of Object.values(teams)) {
+    t.row.classList.toggle('active', t.id === id); t.frame.classList.toggle('active', t.id === id); } };
+  const post = (t, ev) => { if (t.ready) t.frame.contentWindow.postMessage({ __cavteam: true, ev }, '*'); else t.queue.push(ev); };
+
+  function renderRow(t) {
+    t.row.style.paddingLeft = (t.depth * 14 + 8) + 'px';
+    t.row.innerHTML = '';
+    const tog = document.createElement('span'); tog.className = 'tog leaf'; tog.textContent = '▾';
+    tog.onclick = (e) => { e.stopPropagation(); t.kids.classList.toggle('collapsed'); t.row.classList.toggle('collapsed'); };
+    const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = t.label;
+    const st = document.createElement('span'); st.className = 'st';
+    st.textContent = t.done ? '✓' : '●'; st.style.color = t.done ? '#34d399' : '#f59e0b';
+    t.row.append(tog, lbl, st);
+    t._tog = tog;
+  }
+  function markHasChildren(t) { if (t._tog) t._tog.classList.remove('leaf'); }
+
+  function ensure(id, label, parentId) {
+    if (teams[id]) {
+      const t = teams[id];
+      if (label) { t.label = label; renderRow(t); }
+      return t;
+    }
+    document.body.classList.add('has-teams');
+    const parent = parentId && teams[parentId] ? teams[parentId] : null;
+    const node = document.createElement('div'); node.className = 'team-node';
+    const row = document.createElement('div'); row.className = 'team-row';
+    const kids = document.createElement('div'); kids.className = 'team-kids';
+    node.append(row, kids);
+    const frame = document.createElement('iframe'); frame.className = 'team-frame';
+    frame.src = location.pathname + '?team=' + encodeURIComponent(id);   // same route that served this shell
+    const t = { id, row, kids, frame, ready: false, queue: [], label: label || id,
+                done: false, parentId: parent ? parent.id : null, depth: parent ? parent.depth + 1 : 0 };
+    row.onclick = () => select(id);
+    teams[id] = t;
+    (parent ? parent.kids : tabsEl).appendChild(node);
+    framesEl.appendChild(frame);
+    renderRow(t);
+    if (parent) markHasChildren(parent);
+    if (active === null) select(id);
+    return t;
+  }
+
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (m && m.__cavready && teams[m.__cavready]) {
+      const t = teams[m.__cavready]; t.ready = true;
+      t.queue.forEach(ev => t.frame.contentWindow.postMessage({ __cavteam: true, ev }, '*')); t.queue = [];
+    }
+  });
+
+  const es = new EventSource(url);
+  es.onmessage = (m) => {
+    let ev; try { ev = JSON.parse(m.data); } catch (e) { return; }
+    const id = teamIdOf(ev);
+    const label = ev.kind === 'team' ? ((ev.data && (ev.data.task || ev.data.leader)) || id) : null;
+    const t = ensure(id, label, parentIdOf(ev));
+    if (ev.kind === 'report') { t.done = true; renderRow(t); }
+    post(t, ev);
+  };
+  es.onerror = () => {};
+}
+
+if (CHILD_TEAM !== null) {
+  // CHILD: no SSE — the parent shell postMessages this team's events in.
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (m && m.__cavteam === true) handle(m.ev);
+  });
+  if (window.parent !== window) window.parent.postMessage({ __cavready: CHILD_TEAM }, '*');
+} else if (params.get('live') !== null) {
+  initShell('/team/events');
 } else {
   statusText.textContent = 'replay';
   runDemo(DEMO);

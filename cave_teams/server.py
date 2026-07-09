@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import queue
 import socket
 import threading
+import time
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -188,14 +191,51 @@ def cave_team(
     server = EphemeralTeamServer(cave, port=config.port).start() if serve else None
     leader_agent = cave.cave_agents[leader_name]
     teammates = {n: cave.cave_agents[n] for n in teammate_names}
-    on_event = server.emit if server is not None else None
-    if server is not None:
-        server.emit({"kind": "team", "data": {"leader": leader_name, "members": teammate_names, "task": task}})
+
+    # Every event this run emits is stamped with a team_id (op-name + a run nonce), so a gallery
+    # aggregating MANY runs can render one tab per team. Optionally forwarded to a standing gallery
+    # (CAVE_TEAMS_GALLERY_URL, e.g. a host app's /team/emit) — cave-teams stays standalone; the URL,
+    # if any, is supplied by the environment. Best-effort: a missing/broken gallery never breaks a run.
+    team_id = f"{getattr(team, 'op', None) or leader_name}-{int(time.time() * 1000) % 1_000_000:06d}"
+    _gallery_url = os.environ.get("CAVE_TEAMS_GALLERY_URL")
+    # nested teams: a run launched INSIDE another (closure `team(G)` / world teams) inherits the
+    # parent's id via the environment, so a gallery can indent it under its parent. We set our own
+    # id as the parent for anything WE launch, and restore on the way out.
+    parent_id = os.environ.get("CAVE_TEAMS_PARENT_ID") or None
+    _prev_parent = os.environ.get("CAVE_TEAMS_PARENT_ID")
+    os.environ["CAVE_TEAMS_PARENT_ID"] = team_id
+
+    def _forward(ev: dict) -> None:
+        if not _gallery_url:
+            return
+        try:
+            req = urllib.request.Request(
+                _gallery_url, data=json.dumps(ev).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            urllib.request.urlopen(req, timeout=1.5).close()
+        except Exception:
+            pass  # a standing gallery is optional — never let it break the run
+
+    def _emit(ev: dict) -> None:
+        ev = {**ev, "team_id": team_id}
+        if parent_id:
+            ev["parent_id"] = parent_id
+        if server is not None:
+            server.emit(ev)
+        _forward(ev)
+
+    on_event = _emit
+    _emit({"kind": "team", "data": {"leader": leader_name, "members": teammate_names, "task": task}})
 
     try:
         res = run_team(team, task, file_leader(leader_agent), teammates, tdir,
                        open_rules=open_rules, on_event=on_event, max_steps=max_steps)
     finally:
+        # restore the parent-id env so sibling runs aren't wrongly nested under this one
+        if _prev_parent is None:
+            os.environ.pop("CAVE_TEAMS_PARENT_ID", None)
+        else:
+            os.environ["CAVE_TEAMS_PARENT_ID"] = _prev_parent
         if server is not None:
             if linger > 0:
                 import time as _t
