@@ -263,12 +263,13 @@ class _TrackArm(Link):
     rides ctx['output'] so tournament's gather labels it output:<arm>."""
 
     def __init__(self, arm: str, car: Dict[str, Any], workdir: str,
-                 kind: CarKind):
+                 kind: CarKind, tag: Optional[str] = None):
         self.name, self.car, self.workdir, self.kind = arm, car, workdir, kind
+        self.tag = tag or arm
 
     async def execute(self, context=None, **_):
         c = dict(context or {})
-        tel = await self.kind.race(self.car, self.workdir, tag=self.name)
+        tel = await self.kind.race(self.car, self.workdir, tag=self.tag)
         out = json.dumps({"arm": self.name, "fitness": tel["fitness"],
                           **{k: tel[k] for k in ("trades", "gold",
                                                  "rejections_observed",
@@ -299,13 +300,55 @@ class _RaceJudge(Link):
 
 def racetrack(control_car: Dict[str, Any], candidate_car: Dict[str, Any],
               workdir: str, rounds: int = 5,
-              kind: Optional[CarKind] = None) -> Link:
-    """The always-on split: tournament([control, treatment], race_judge)."""
+              kind: Optional[CarKind] = None, rep: Optional[int] = None) -> Link:
+    """The always-on split: tournament([control, treatment], race_judge).
+    `rep` labels this split's runs (control@r<i>/treatment@r<i>) so replicated
+    tracks draw independent conditions from a stochastic kind."""
     kind = kind or config_kind(rounds)
+    sfx = f"@r{rep}" if rep is not None else None
     return tournament(
-        [_TrackArm("control", control_car, workdir, kind),
-         _TrackArm("treatment", candidate_car, workdir, kind)],
+        [_TrackArm("control", control_car, workdir, kind,
+                   tag=f"control{sfx}" if sfx else None),
+         _TrackArm("treatment", candidate_car, workdir, kind,
+                   tag=f"treatment{sfx}" if sfx else None)],
         _RaceJudge(), name="racetrack")
+
+
+# ── ORDER 3: Championship() — replicated RCTs (the meta-science rung) ─────────
+class Championship(Link):
+    """K independent racetracks over the SAME pair; verdict by STRICT MAJORITY
+    of per-replicate SHIPs (a tie-replicate counts against shipping, exactly as
+    a tie-race does). This is the rung that survives a noisy judge: a lucky
+    single race can ship a worthless change or revert a good one — replicated
+    trials converge on the true ordering. Wins must exceed K/2."""
+
+    def __init__(self, control_car: Dict[str, Any], candidate_car: Dict[str, Any],
+                 workdir: str, replicates: int = 5, rounds: int = 5,
+                 kind: Optional[CarKind] = None, name: str = "championship"):
+        self.name = name
+        self.tracks = [racetrack(control_car, candidate_car, workdir,
+                                 rounds=rounds, kind=kind, rep=i)
+                       for i in range(replicates)]
+
+    async def execute(self, context=None, **_):
+        import asyncio as _aio
+        c = dict(context or {})
+        results = await _aio.gather(*[t.execute({}) for t in self.tracks])
+        reps = [(r.context or {}) for r in results]
+        wins = sum(1 for r in reps if r.get("verdict") == "SHIP")
+        c["replicates"] = [{"verdict": r.get("verdict"),
+                            "race": r.get("race")} for r in reps]
+        c["tally"] = {"ships": wins, "reverts": len(reps) - wins,
+                      "replicates": len(reps)}
+        c["verdict"] = "SHIP" if wins * 2 > len(reps) else "REVERT"
+        # the aggregate race view (mean fitness per arm) for the lineage
+        def _mean(arm):
+            vals = [r["race"][arm].get("fitness") for r in reps
+                    if r.get("race", {}).get(arm, {}).get("fitness") is not None]
+            return round(sum(vals) / len(vals), 2) if vals else None
+        c["race"] = {"control": {"fitness": _mean("control")},
+                     "treatment": {"fitness": _mean("treatment")}}
+        return LinkResult(status=LinkStatus.SUCCESS, context=c)
 
 
 # ── the composed factory (the full ladder, one cycle at a time) ───────────────
@@ -319,11 +362,13 @@ class DarkFactory:
 
     def __init__(self, car: Optional[Dict[str, Any]] = None,
                  workdir: Optional[str] = None, rounds: int = 5,
-                 max_attempts: int = 3, kind: Optional[CarKind] = None):
+                 max_attempts: int = 3, kind: Optional[CarKind] = None,
+                 replicates: int = 1):
         self.car = car or new_car()
         self.workdir = workdir or tempfile.mkdtemp(prefix="darkfactory-")
         self.rounds, self.max_attempts = rounds, max_attempts
         self.kind = kind or config_kind(rounds)
+        self.replicates = replicates          # >1 ⇒ Championship order
 
     async def cycle(self, proposer: Link) -> Dict[str, Any]:
         # ORDER 0 — the incumbent runs; its telemetry is the dev seat's input.
@@ -343,26 +388,41 @@ class DarkFactory:
             self.car["lineage"].append({"verdict": report["verdict"],
                                         "extinct": extinct})
             return report
-        # ORDER 2 — the RCT. The factory ALWAYS deploys splits.
-        race = await racetrack(self.car, candidate, self.workdir,
-                               rounds=self.rounds, kind=self.kind).execute({})
+        # ORDER 2/3 — the causal gate. The factory ALWAYS deploys splits;
+        # replicates>1 escalates the single RCT to a Championship (replicated
+        # RCTs, strict-majority verdict — the noisy-judge answer).
+        if self.replicates > 1:
+            gate = Championship(self.car, candidate, self.workdir,
+                                replicates=self.replicates, rounds=self.rounds,
+                                kind=self.kind)
+        else:
+            gate = racetrack(self.car, candidate, self.workdir,
+                             rounds=self.rounds, kind=self.kind)
+        race = await gate.execute({})
         rc = race.context or {}
         verdict, arms = rc["verdict"], rc["race"]
         entry = {"delta": ctx.get("candidate_delta"), "verdict": verdict,
                  "fitness_control": arms["control"].get("fitness"),
                  "fitness_treatment": arms["treatment"].get("fitness"),
                  "extinct": extinct}
+        if "tally" in rc:
+            entry["tally"] = rc["tally"]
         if verdict == "SHIP":
             lineage = self.car["lineage"] + [entry]
             self.car = dict(candidate)
             self.car["lineage"] = lineage
         else:
             self.car["lineage"].append(entry)
-        return {"telemetry": telemetry, "extinct": extinct,
-                "candidate": candidate, "verdict": verdict, "race": arms,
-                "car": dict(self.car)}
+        report = {"telemetry": telemetry, "extinct": extinct,
+                  "candidate": candidate, "verdict": verdict, "race": arms,
+                  "car": dict(self.car)}
+        if "tally" in rc:
+            report["tally"] = rc["tally"]
+            report["replicate_verdicts"] = [r["verdict"]
+                                            for r in rc["replicates"]]
+        return report
 
 
 __all__ = ["CarKind", "config_kind", "new_car", "apply_delta", "run_world",
            "quarantine_gate", "proposer_from_fn", "Formula1Stable", "racetrack",
-           "DarkFactory"]
+           "Championship", "DarkFactory"]
