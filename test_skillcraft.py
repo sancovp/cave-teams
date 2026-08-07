@@ -93,27 +93,33 @@ def test_guards(root, quests):
     assert st["trade_board"][0]["challenges"][0]["challenger"] == "agent_002"
     _expect_reject(mut, st, "agent_002", {"type": "challenge", "listing_id": lid2, "assessment": "x", "reason": "y"},
                    "double challenge")
-    print("  guards: trade_post(5) · trade_buy(3) · quest anti-injection · lfg · challenge — ALL fire ✓")
+
+    # bug_report: agent audits the economy → files a bug onto the board (the bounty supply side)
+    st = mut(st, "agent_002", {"type": "bug_report", "title": "self-buy via alias",
+                               "description": "...", "reproduction": "...", "severity": "high"})
+    assert len(st["bug_reports"]) == 1 and st["bug_reports"][0]["reporter"] == "agent_002"
+    assert st["bug_reports"][0]["status"] == "open" and st["bug_reports"][0]["reward_paid"] is False
+    print("  guards: trade_post(5) · trade_buy(3) · quest anti-injection · lfg · challenge · bug_report — ALL fire ✓")
 
 
 def test_advance_bounty():
-    bugs = [{"id": "bug_1", "reporter": "agent_002", "status": "open", "reward_paid": False},
-            {"id": "bug_2", "reporter": "agent_002", "status": "open", "reward_paid": False}]
-    validate_bug(bugs, "bug_1", "valid")
-    validate_bug(bugs, "bug_2", "valid")
-    adv = skillcraft_advance(bugs)
+    # bugs live ON the board now (the default path); the deity validates them there
     board = initial_state(["agent_001", "agent_002"])
+    board["bug_reports"] = [{"id": "bug_1", "reporter": "agent_002", "status": "open", "reward_paid": False},
+                            {"id": "bug_2", "reporter": "agent_002", "status": "open", "reward_paid": False}]
+    validate_bug(board["bug_reports"], "bug_1", "valid")
+    validate_bug(board["bug_reports"], "bug_2", "valid")
     board["agents"]["agent_001"]["gold"] = 400            # earned during the season
     board["trade_board"] = [{"listing_id": "x"}]
-    nxt = adv(board, 2)
+    nxt = skillcraft_advance()(board, 2)                   # no side-channel → reads board["bug_reports"]
     assert nxt["season"]["number"] == 2
     assert nxt["season"]["previous_season"]["number"] == 1
     assert nxt["agents"]["agent_001"]["gold"] == 100      # reset (no bounty)
     assert nxt["agents"]["agent_002"]["gold"] == 300      # 100 floor + 2×100 bounty ON TOP
     assert nxt["trade_board"] == []                        # boards wiped
     assert nxt["season"]["rarity_consensus"]["recipe"] == "epic"   # ratchet carried
-    assert all(b["reward_paid"] for b in bugs)             # bounties marked paid
-    print("  advance: bounty(2×100 on top of the 100 floor) · reset · boards wiped · ratchet carried ✓")
+    assert all(b["reward_paid"] for b in nxt["bug_reports"])       # bounties marked paid, ledger persists
+    print("  advance: bug ledger on the board · bounty(2×100 on top of the 100 floor) · reset · ratchet ✓")
 
 
 # a deterministic player: craft+test then post; or buy a named listing

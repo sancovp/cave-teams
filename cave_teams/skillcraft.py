@@ -60,7 +60,7 @@ def initial_state(agent_ids: List[str], season_number: int = 1,
                        "skills_crafted": 0, "trades_completed": 0, "quests_completed": 0}
                    for a in agent_ids},
         "trade_board": [], "trade_history": [], "lfg_board": [], "quest_log": {},
-        "deity_bulletin": [],
+        "deity_bulletin": [], "bug_reports": [],
     }
 
 
@@ -211,6 +211,17 @@ def skillcraft_mutator(agents_root, quests_root) -> Callable:
                      "reason": action.get("reason", ""), "at": now})
             stamp()
 
+        elif t == "bug_report":
+            # audit the GAME ITSELF (this economy) for an exploit — the bounty loop's supply side.
+            # (WoS files these via a separate report.sh; here it's a first-class move onto the board.)
+            bid = f"bug_{_nonce(s)}_{agent}"
+            s.setdefault("bug_reports", []).append(
+                {"id": bid, "reporter": agent, "title": str(action.get("title", ""))[:120],
+                 "description": str(action.get("description", ""))[:500],
+                 "reproduction": str(action.get("reproduction", ""))[:500],
+                 "severity": action.get("severity", "low"), "status": "open", "reward_paid": False})
+            stamp()
+
         else:                                                          # move/learn/search/remember…
             stamp()
         return s
@@ -231,13 +242,14 @@ def _grep_reward(text: str) -> int:
 def skillcraft_advance(bug_reports: Optional[List[Dict[str, Any]]] = None) -> Callable:
     """Return advance(board, season_num) -> board: pay valid-unpaid bug bounties (100g/bug, grouped by
     reporter, mark paid) BEFORE the reset, then archive→previous_season, reset gold=100 + counters,
-    wipe the boards, CARRY the rarity_consensus (the ratchet) + the deity_bulletin, then add bounty
-    gold on top. `bug_reports` is the mutable bug ledger (deity-validated); mutated in place."""
-    bugs = bug_reports if bug_reports is not None else []
+    wipe the boards, CARRY the rarity_consensus (the ratchet) + the deity_bulletin + the bug ledger,
+    then add bounty gold on top. The bug ledger is `board["bug_reports"]` (deity-validated on the
+    board); pass `bug_reports` only to use a side-channel ledger instead."""
 
     def advance(board: Dict[str, Any], n: int) -> Dict[str, Any]:
         b = json.loads(json.dumps(board))
         cur = b["season"]
+        bugs = bug_reports if bug_reports is not None else b.get("bug_reports", [])
         # 1. tally valid+unpaid bounties by reporter, mark paid
         payouts: Dict[str, int] = {}
         for bug in bugs:
