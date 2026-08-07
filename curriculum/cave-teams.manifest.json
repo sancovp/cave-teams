@@ -54,6 +54,12 @@
           {"name": "cave-evolve", "kind": "skill", "skill_src": "plugin/skills/cave-evolve", "description": "Evolve/select over agent configs across generations."},
           {"name": "cave-world", "kind": "skill", "skill_src": "plugin/skills/cave-world", "description": "The gameworld — the composed world pattern (NPCs, nested worlds)."}
         ]
+      },
+      {
+        "name": "cave-teams-learner",
+        "kind": "skill",
+        "skill_src": "plugin/skills/cave-teams-learner",
+        "description": "The testing machine — force every topology to RUN with real agents and read the interactions (not pass flags). The powerset-agent way."
       }
     ]
   }
