@@ -57,6 +57,9 @@ def test_guards(root, quests):
     st = mut(st, "agent_002", {"type": "trade_buy", "listing_id": lid})
     assert st["agents"]["agent_002"]["gold"] == 20      # 100 - 80
     assert st["agents"]["agent_001"]["gold"] == 180     # 100 + 80  (atomic, both sides)
+    # the buyer GOT the file (trade.sh:198 — bought/<seller>/<basename>)
+    assert os.path.isfile(os.path.join(root, "agent_002", "bought",
+                                       "agent_001", "codebase_archaeology.md"))
     assert st["agents"]["agent_001"]["trades_completed"] == 1
     assert st["agents"]["agent_002"]["trades_completed"] == 1
     assert st["trade_board"] == []                       # listing removed

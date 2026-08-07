@@ -147,6 +147,14 @@ def skillcraft_mutator(agents_root, quests_root) -> Callable:
             s["agents"][seller]["gold"] += price
             s["agents"][agent]["trades_completed"] += 1
             s["agents"][seller]["trades_completed"] += 1
+            # the buyer GETS the file — trade.sh:198: bought/<seller>/<basename>
+            src = agents_root / seller / listing["skill_path"]
+            if src.is_file():
+                dest = (agents_root / agent / "bought" / seller
+                        / src.name)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(src.read_text(encoding="utf-8"),
+                                encoding="utf-8")
             s["trade_board"] = [l for l in s["trade_board"] if l["listing_id"] != lid]
             s["trade_history"].append({"listing_id": lid, "seller": seller, "buyer": agent,
                                        "skill_path": listing["skill_path"], "price": price,
