@@ -5,6 +5,5 @@ minimax + claude-p are just the demo ("run claude-code teams without Claude Code
 minimax or claude, from Claude Code"). A backend is any object with `.run(str) -> str`.
 """
 from .minimax_runtime import MiniMaxRuntime
-from .bare_minimax import BareMiniMaxRuntime
 
-__all__ = ["MiniMaxRuntime", "BareMiniMaxRuntime"]
+__all__ = ["MiniMaxRuntime"]
