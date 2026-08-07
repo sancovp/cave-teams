@@ -34,11 +34,26 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from .chain_ontology import Link, LinkResult, LinkStatus
 from .topologies import loop_refine, tournament
 from .skillcraft import SkillcraftWorld, initial_state, craft_skill, record_test
+
+
+# ── the car interface (the factory is GENERIC over the car — the D∞ point in
+#    code: the orders never inspect what the car is, only race/gate/mutate it) ──
+@dataclass
+class CarKind:
+    """The three verbs every order needs, injectable:
+    race(car, workdir, tag) -> telemetry (async; must carry 'fitness');
+    viability(car, workdir) -> {alive, cause, telemetry} (async — the gate);
+    apply_delta(car, delta) -> candidate (sync)."""
+    race: Callable
+    viability: Callable
+    apply_delta: Callable
+    name: str = "carkind"
 
 
 # ── the car (the self-simulated artifact — config as genome) ──────────────────
@@ -168,6 +183,18 @@ async def quarantine_gate(candidate: Dict[str, Any], workdir: str,
     return {"alive": True, "cause": "pass", "telemetry": tel}
 
 
+def config_kind(rounds: int = 5) -> CarKind:
+    """The original car: a config dict raced as a SkillcraftWorld market."""
+    async def _race(car, workdir, tag="run"):
+        return await run_world(car, workdir, rounds=rounds, tag=tag)
+
+    async def _viability(car, workdir):
+        return await quarantine_gate(car, workdir, rounds=rounds)
+
+    return CarKind(race=_race, viability=_viability, apply_delta=apply_delta,
+                   name="config-car")
+
+
 class _GateLink(Link):
     """The critic seat of the dev DUO. Reads the proposed delta from
     ctx['delta'] (or ctx['action'] — so a world_as_agent proposer plugs in
@@ -176,15 +203,14 @@ class _GateLink(Link):
     proposer's next attempt (the EvalChain loop is the dev-deity's rerun)."""
     name = "quarantine_gate"
 
-    def __init__(self, workdir: str, rounds: int = 5):
-        self.workdir, self.rounds = workdir, rounds
+    def __init__(self, workdir: str, kind: CarKind):
+        self.workdir, self.kind = workdir, kind
 
     async def execute(self, context=None, **_):
         c = dict(context or {})
         delta = c.get("delta") or c.get("action") or {}
-        candidate = apply_delta(c["car"], delta)
-        verdict = await quarantine_gate(candidate, self.workdir,
-                                        rounds=self.rounds)
+        candidate = self.kind.apply_delta(c["car"], delta)
+        verdict = await self.kind.viability(candidate, self.workdir)
         c["gate_passed"] = verdict["alive"]
         if verdict["alive"]:
             c["candidate"], c["candidate_delta"] = candidate, delta
@@ -219,9 +245,11 @@ class Formula1Stable(Link):
     survivor in ctx['candidate'] (None ⇒ every lineage died)."""
 
     def __init__(self, proposer: Link, workdir: str, rounds: int = 5,
-                 max_attempts: int = 3, name: str = "formula1_stable"):
+                 max_attempts: int = 3, kind: Optional[CarKind] = None,
+                 name: str = "formula1_stable"):
         self.name = name
-        self.loop = loop_refine(proposer, _GateLink(workdir, rounds),
+        kind = kind or config_kind(rounds)
+        self.loop = loop_refine(proposer, _GateLink(workdir, kind),
                                 max_cycles=max_attempts,
                                 approval_key="gate_passed", name=f"{name}:duo")
 
@@ -234,16 +262,18 @@ class _TrackArm(Link):
     """One arm of the split: race the given car on a fresh track; the result
     rides ctx['output'] so tournament's gather labels it output:<arm>."""
 
-    def __init__(self, arm: str, car: Dict[str, Any], workdir: str, rounds: int):
-        self.name, self.car, self.workdir, self.rounds = arm, car, workdir, rounds
+    def __init__(self, arm: str, car: Dict[str, Any], workdir: str,
+                 kind: CarKind):
+        self.name, self.car, self.workdir, self.kind = arm, car, workdir, kind
 
     async def execute(self, context=None, **_):
         c = dict(context or {})
-        tel = await run_world(self.car, self.workdir, rounds=self.rounds,
-                              tag=self.name)
+        tel = await self.kind.race(self.car, self.workdir, tag=self.name)
         out = json.dumps({"arm": self.name, "fitness": tel["fitness"],
-                          "trades": tel["trades"], "gold": tel["gold"],
-                          "rejections_observed": tel["rejections_observed"]})
+                          **{k: tel[k] for k in ("trades", "gold",
+                                                 "rejections_observed",
+                                                 "failing_inputs", "cases")
+                             if k in tel}})
         c["output"] = out
         c[f"output:{self.name}"] = out      # the worker namespaces its own output
         return LinkResult(status=LinkStatus.SUCCESS, context=c)
@@ -268,11 +298,13 @@ class _RaceJudge(Link):
 
 
 def racetrack(control_car: Dict[str, Any], candidate_car: Dict[str, Any],
-              workdir: str, rounds: int = 5) -> Link:
+              workdir: str, rounds: int = 5,
+              kind: Optional[CarKind] = None) -> Link:
     """The always-on split: tournament([control, treatment], race_judge)."""
+    kind = kind or config_kind(rounds)
     return tournament(
-        [_TrackArm("control", control_car, workdir, rounds),
-         _TrackArm("treatment", candidate_car, workdir, rounds)],
+        [_TrackArm("control", control_car, workdir, kind),
+         _TrackArm("treatment", candidate_car, workdir, kind)],
         _RaceJudge(), name="racetrack")
 
 
@@ -287,18 +319,19 @@ class DarkFactory:
 
     def __init__(self, car: Optional[Dict[str, Any]] = None,
                  workdir: Optional[str] = None, rounds: int = 5,
-                 max_attempts: int = 3):
+                 max_attempts: int = 3, kind: Optional[CarKind] = None):
         self.car = car or new_car()
         self.workdir = workdir or tempfile.mkdtemp(prefix="darkfactory-")
         self.rounds, self.max_attempts = rounds, max_attempts
+        self.kind = kind or config_kind(rounds)
 
     async def cycle(self, proposer: Link) -> Dict[str, Any]:
         # ORDER 0 — the incumbent runs; its telemetry is the dev seat's input.
-        telemetry = await run_world(self.car, self.workdir, rounds=self.rounds,
-                                    tag="incumbent")
+        telemetry = await self.kind.race(self.car, self.workdir,
+                                         tag="incumbent")
         # ORDER 1 — the stable develops (propose → quarantine → death/rerun).
         stable = Formula1Stable(proposer, self.workdir, rounds=self.rounds,
-                                max_attempts=self.max_attempts)
+                                max_attempts=self.max_attempts, kind=self.kind)
         r = await stable.execute({"car": dict(self.car), "telemetry": telemetry})
         ctx = r.context or {}
         extinct: List[Dict[str, Any]] = ctx.get("extinct", [])
@@ -312,7 +345,7 @@ class DarkFactory:
             return report
         # ORDER 2 — the RCT. The factory ALWAYS deploys splits.
         race = await racetrack(self.car, candidate, self.workdir,
-                               rounds=self.rounds).execute({})
+                               rounds=self.rounds, kind=self.kind).execute({})
         rc = race.context or {}
         verdict, arms = rc["verdict"], rc["race"]
         entry = {"delta": ctx.get("candidate_delta"), "verdict": verdict,
@@ -330,5 +363,6 @@ class DarkFactory:
                 "car": dict(self.car)}
 
 
-__all__ = ["new_car", "apply_delta", "run_world", "quarantine_gate",
-           "proposer_from_fn", "Formula1Stable", "racetrack", "DarkFactory"]
+__all__ = ["CarKind", "config_kind", "new_car", "apply_delta", "run_world",
+           "quarantine_gate", "proposer_from_fn", "Formula1Stable", "racetrack",
+           "DarkFactory"]
