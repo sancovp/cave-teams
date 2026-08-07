@@ -79,4 +79,5 @@ The generated
 
 ## See also
 Every node below (walk the tree). The flat capability skills live in `plugin/skills/`; this volume is
-the *learning* surface over them. Part of the **cave-teams** plugin.
+the *learning* surface over them. **Every verified topology, diagrammed with its receipt:**
+`curriculum/TOPOLOGY-DIAGRAMS.md` (renders on GitHub). Part of the **cave-teams** plugin.
