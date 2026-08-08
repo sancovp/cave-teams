@@ -425,4 +425,69 @@ class DarkFactory:
 
 __all__ = ["CarKind", "config_kind", "new_car", "apply_delta", "run_world",
            "quarantine_gate", "proposer_from_fn", "Formula1Stable", "racetrack",
-           "Championship", "DarkFactory"]
+           "Championship", "DarkFactory", "DarkFactoryWorld"]
+
+
+# ── THE DARK FACTORY'S JOBWORLD — literally coded in the library ─────────────
+from .jobworld import JobWorld, CEO, Department
+
+
+class DarkFactoryWorld(JobWorld):
+    """The dark factory as ONE object: a JobWorld whose two departments are
+    agents whose runtimes ARE worlds (dev_world, live_world — pass runtimes
+    whose .run boots a SkillcraftWorld and reports), with the leader-deity in
+    the CEO seat running the factory round as its planner/reviewer:
+
+        round 1  assign live_world: play the current package → telemetry
+        round 2  assign dev_world: the CHARTER + telemetry (+ issue backlog)
+        review   dev's report = the candidate → `judge(candidate, board)`
+                 (the app wires gate + racetrack/Championship + ship/PR there)
+        stop     when the cycle's work is reviewed
+
+    Every param arrives from ONE config dict. The library stays app-agnostic:
+    world runtimes and the judge are injected; the config carries the knobs.
+    """
+
+    def __init__(self, config: Dict[str, Any],
+                 dev_world_runtime: Any, live_world_runtime: Any,
+                 judge: Callable, name: str = None):
+        cfg = dict(config)
+        charter = cfg.get("charter", "Improve the codebase.")
+        state = {"phase": "live"}                      # the leader's tiny FSM
+
+        def planner(board):
+            if state["phase"] == "live":
+                state["phase"] = "dev"
+                return [("live_world", {"do": "play",
+                                        "note": "play the current package; "
+                                                "report telemetry"})]
+            if state["phase"] == "dev":
+                tel = next((t["result"] for t in board["tasks"]
+                            if t["dept"] == "live_world"
+                            and t["status"] == "complete"), None)
+                if tel is None:
+                    return []                          # wait for live's report
+                state["phase"] = "done"
+                return [("dev_world", {"do": "develop", "charter": charter,
+                                       "telemetry": tel,
+                                       "issues": cfg.get("issues", [])})]
+            return []                                  # done → CEO stops
+
+        async def reviewer(task, board):
+            if task["dept"] == "live_world":
+                return ("complete", "telemetry received")
+            verdict = judge(task["result"], board)     # gate + race + ship
+            import inspect
+            if inspect.isawaitable(verdict):
+                verdict = await verdict
+            return (("complete", verdict) if verdict.get("verdict") == "SHIP"
+                    else ("not_complete", verdict))
+
+        super().__init__(
+            departments={
+                "dev_world": Department("dev_world", dev_world_runtime),
+                "live_world": Department("live_world", live_world_runtime),
+            },
+            ceo=CEO(planner, reviewer),
+            rounds=int(cfg.get("jobworld_rounds", 6)),
+            name=name or cfg.get("factory_name", "dark-factory"))
