@@ -429,58 +429,90 @@ __all__ = ["CarKind", "config_kind", "new_car", "apply_delta", "run_world",
 
 
 # ── THE DARK FACTORY'S JOBWORLD — literally coded in the library ─────────────
-from .jobworld import JobWorld, CEO, Department
+from .jobworld import (JobWorld, CEO, Department, create_company,
+                       create_department, create_agent, create_project,
+                       create_milestone, create_goal, create_task, assign_task)
 
 
 class DarkFactoryWorld(JobWorld):
-    """The dark factory as ONE object: a JobWorld whose two departments are
-    agents whose runtimes ARE worlds (dev_world, live_world — pass runtimes
-    whose .run boots a SkillcraftWorld and reports), with the leader-deity in
-    the CEO seat running the factory round as its planner/reviewer:
+    """The dark factory as ONE object on the FAITHFUL JobWorld port: a real
+    org (company → departments → registered agents; project → milestone →
+    goal → tasks) whose two departments are agents whose runtimes ARE worlds
+    (dev_world, live_world), with the leader-deity in the CEO seat:
 
-        round 1  assign live_world: play the current package → telemetry
-        round 2  assign dev_world: the CHARTER + telemetry (+ issue backlog)
-        review   dev's report = the candidate → `judge(candidate, board)`
-                 (the app wires gate + racetrack/Championship + ship/PR there)
-        stop     when the cycle's work is reviewed
+        first_boot   register the org (the rule-06 roster gate)
+        round        assign live_world: play → telemetry (emit_event flips it)
+        round        review live; assign dev_world: CHARTER + telemetry
+        review       dev's report = the candidate → `judge(candidate, store)`
+                     SHIP ⇒ complete (the cascade sets goal "met", milestone
+                     "true"); else not_complete ⇒ the task reopens (the CEO
+                     sends the work back — bounded by jobworld_rounds).
 
-    Every param arrives from ONE config dict. The library stays app-agnostic:
-    world runtimes and the judge are injected; the config carries the knobs.
-    """
+    Every param from ONE config dict; the app injects the world runtimes and
+    the judge (gate + race + ship)."""
 
     def __init__(self, config: Dict[str, Any],
                  dev_world_runtime: Any, live_world_runtime: Any,
                  judge: Callable, name: str = None):
         cfg = dict(config)
         charter = cfg.get("charter", "Improve the codebase.")
-        state = {"phase": "live"}                      # the leader's tiny FSM
+        st = {"phase": "boot", "goal": None}
 
-        def planner(board):
-            if state["phase"] == "live":
-                state["phase"] = "dev"
-                return [("live_world", {"do": "play",
-                                        "note": "play the current package; "
-                                                "report telemetry"})]
-            if state["phase"] == "dev":
-                tel = next((t["result"] for t in board["tasks"]
+        def _agent_named(s, dept_name):
+            for a in s["agents"].values():
+                if a["name"] == dept_name:
+                    return a
+            return None
+
+        def first_boot(s):
+            create_company(s, cfg.get("factory_name", "dark-factory"))
+            for dept_name in ("dev_world", "live_world"):
+                d = create_department(s, dept_name)
+                create_agent(s, d["id"], dept_name)
+
+        def planner(s):
+            if st["phase"] == "boot":
+                p = create_project(s, "the factory",
+                                   "the self-development loop")
+                m = create_milestone(s, p["id"], "one cycle")
+                g = create_goal(s, m["id"],
+                                "ship a causally-proven improvement")
+                st["goal"] = g["id"]
+                t = create_task(s, g["id"], "live_world",
+                                "play the current package; report telemetry")
+                assign_task(s, t["id"], _agent_named(s, "live_world")["id"])
+                st["phase"] = "live"
+                return True
+            if st["phase"] == "live":
+                tel = next((t.get("result") for t in s["tasks"].values()
                             if t["dept"] == "live_world"
                             and t["status"] == "complete"), None)
                 if tel is None:
-                    return []                          # wait for live's report
-                state["phase"] = "done"
-                return [("dev_world", {"do": "develop", "charter": charter,
-                                       "telemetry": tel,
-                                       "issues": cfg.get("issues", [])})]
-            return []                                  # done → CEO stops
+                    return False
+                t = create_task(s, st["goal"], "dev_world", json.dumps(
+                    {"charter": charter, "telemetry": tel,
+                     "issues": cfg.get("issues", [])}))
+                assign_task(s, t["id"], _agent_named(s, "dev_world")["id"])
+                st["phase"] = "dev"
+                return True
+            return False
 
-        async def reviewer(task, board):
+        async def reviewer(task, s):
             if task["dept"] == "live_world":
                 return ("complete", "telemetry received")
-            verdict = judge(task["result"], board)     # gate + race + ship
+            result = task.get("result")
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except (ValueError, TypeError):
+                    pass
             import inspect
+            verdict = judge(result, s)
             if inspect.isawaitable(verdict):
                 verdict = await verdict
-            return (("complete", verdict) if verdict.get("verdict") == "SHIP"
+            return (("complete", verdict)
+                    if isinstance(verdict, dict)
+                    and verdict.get("verdict") == "SHIP"
                     else ("not_complete", verdict))
 
         super().__init__(
@@ -488,6 +520,6 @@ class DarkFactoryWorld(JobWorld):
                 "dev_world": Department("dev_world", dev_world_runtime),
                 "live_world": Department("live_world", live_world_runtime),
             },
-            ceo=CEO(planner, reviewer),
-            rounds=int(cfg.get("jobworld_rounds", 6)),
+            ceo=CEO(planner, reviewer, first_boot=first_boot),
+            rounds=int(cfg.get("jobworld_rounds", 8)),
             name=name or cfg.get("factory_name", "dark-factory"))

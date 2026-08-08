@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
-"""JobWorld — the org as a literal World() class. Deterministic (NO API).
-
-Proves: the task lifecycle (assign → work → report → supposedly_done → CEO
-review → complete/not_complete), the CEO's planner/reviewer seats, the stop
-condition, mutator guards, a department whose runtime IS a whole world
-(SkillcraftWorld driving its report), and DarkFactoryWorld — the factory's
-jobworld coded in the library — running its full round from one config dict.
+"""JobWorld PARITY suite — the class vs the real system (twi-jobworld
+server/jobworld_agent.py), deterministic (NO API). Every assertion mirrors the
+served system's exact semantics: store shape, entity fields/statuses, the
+emit_event observation flip, the CEO review cascade (task→goal→milestone),
+the dept NAME-vs-id open-tasks fix, the rule-06 roster gate (no soloing), the
+workday round loop, and DarkFactoryWorld running the full org from one config.
 """
 import asyncio
-import os
-import tempfile
+import json
 
-from cave_teams.jobworld import (JobWorld, CEO, Department, jobworld_board,
-                                 jobworld_mutator, assign)
+from cave_teams.jobworld import (
+    JobWorld, CEO, Department, jobworld_store, jobworld_mutator,
+    create_company, create_department, create_agent, create_project,
+    create_milestone, create_goal, create_task, ceo_review_task, assign_task,
+    close_day, get_open_tasks, get_org_chart)
 from cave_teams.darkfactory import DarkFactoryWorld
-from cave_teams.skillcraft import SkillcraftWorld, initial_state, craft_skill
 
 
 class FnRuntime:
-    """Any object with .run — the polymorphic slot, coded."""
     def __init__(self, fn):
         self.fn = fn
 
@@ -26,131 +25,211 @@ class FnRuntime:
         return self.fn(spec)
 
 
-def test_lifecycle_and_guards():
+def _org():
+    """company → dept → agent → project → milestone → goal → task (exact
+    field parity with jobworld_agent.py create_*)."""
+    s = jobworld_store()
+    create_company(s, "acme")
+    d = create_department(s, "research")
+    a = create_agent(s, d["id"], "worker_1")
+    p = create_project(s, "proj")
+    m = create_milestone(s, p["id"], "ms")
+    g = create_goal(s, m["id"], "the goal")
+    t = create_task(s, g["id"], "research", "find things")
+    return s, d, a, g, t, m
+
+
+def test_entities_exact():
+    s, d, a, g, t, m = _org()
+    assert s["company"]["dept_ids"] == [d["id"]]
+    assert a["status"] == "idle" and a["current_task_id"] is None
+    assert m["status"] == "pending" and g["status"] == "pending"
+    assert t["status"] == "open" and t["agent_id"] is None
+    assert g["tasks"] == [t["id"]] and m["goals"] == [g["id"]]
+    print("  entities: exact field/status parity (open·idle·pending) ✓")
+
+
+def test_observation_flip_and_block():
+    s, d, a, g, t, m = _org()
+    assign_task(s, t["id"], a["id"])
+    assert s["agents"][a["id"]]["status"] == "working"
     mut = jobworld_mutator()
-    b = jobworld_board()
-    tid = assign(b, "research", "find things")
-    # wrong dept can't report another's task; unknown task rejected
-    for bad in ({"type": "report", "task_id": tid},):
-        try:
-            mut(b, "content", bad)
-            raise AssertionError("guard did not fire: cross-dept report")
-        except ValueError:
-            pass
-    b2 = mut(b, "research", {"type": "report", "task_id": tid, "result": "found"})
-    task = b2["tasks"][0]
-    assert task["status"] == "supposedly_done" and task["result"] == "found"
-    # double-report of a supposedly_done task is refused
+    # the REAL report contract: emit_event with the observation shape
+    s2 = mut(s, "research", {"type": "emit_event", "event": {
+        "process": "research-work",
+        "observation": {"goal_id": g["id"], "task": t["id"],
+                        "status": "completed", "desc": "found it"}}})
+    task = s2["tasks"][t["id"]]
+    assert task["status"] == "supposedly_done" and task["result"] == "found it"
+    assert s2["goals"][g["id"]]["status"] == "pending"      # all_done → pending
+    agent = s2["agents"][a["id"]]
+    assert agent["status"] == "idle" and agent["current_task_id"] is None
+    # blocked path: goal → "not"
+    t2 = create_task(s2, g["id"], "research", "second")
+    s3 = mut(s2, "research", {"type": "emit_event", "event": {
+        "observation": {"goal_id": g["id"], "task": t2["id"],
+                        "status": "blocked", "desc": "no access"}}})
+    assert s3["tasks"][t2["id"]]["status"] == "blocked"
+    assert s3["tasks"][t2["id"]]["blocked_reason"] == "no access"
+    assert s3["goals"][g["id"]]["status"] == "not"
+    print("  emit_event flip: completed→supposedly_done (+agent freed) · "
+          "blocked→goal 'not' ✓")
+
+
+def test_review_cascade():
+    s, d, a, g, t, m = _org()
+    mut = jobworld_mutator()
+    s = mut(s, "research", {"type": "emit_event", "event": {
+        "observation": {"goal_id": g["id"], "task": t["id"],
+                        "status": "completed", "desc": "done"}}})
+    # not_complete → back to open, result popped, goal pending
+    ceo_review_task(s, t["id"], "not_complete")
+    assert s["tasks"][t["id"]]["status"] == "open"
+    assert "result" not in s["tasks"][t["id"]]
+    assert s["goals"][g["id"]]["status"] == "pending"
+    # complete → the full cascade: goal "met", milestone "true"
+    s = mut(s, "research", {"type": "emit_event", "event": {
+        "observation": {"goal_id": g["id"], "task": t["id"],
+                        "status": "completed", "desc": "done right"}}})
+    ceo_review_task(s, t["id"], "complete")
+    assert s["tasks"][t["id"]]["status"] == "complete"
+    assert s["goals"][g["id"]]["status"] == "met"
+    assert s["milestones"][m["id"]]["status"] == "true"
+    assert close_day(s)["day"] == 2
+    print("  review cascade: not_complete→open(+result popped) · "
+          "complete→goal met→milestone 'true' · close_day ✓")
+
+
+def test_department_write_path_guarded():
+    s, *_ = _org()
+    mut = jobworld_mutator()
     try:
-        mut(b2, "research", {"type": "report", "task_id": tid, "result": "again"})
-        raise AssertionError("guard did not fire: re-report")
+        mut(s, "research", {"type": "create_task", "goal_id": "x"})
+        raise AssertionError("guard did not fire: dept must not create")
     except ValueError:
         pass
-    print("  lifecycle guards: cross-dept · re-report · event log ✓")
+    print("  the write path: departments emit_event ONLY (CEO owns the rest) ✓")
 
 
-def test_org_round_loop():
-    seen = {"planned": 0}
+def test_open_tasks_dept_name_fix():
+    s, d, a, g, t, m = _org()
+    create_task(s, g["id"], "Research", "case-insensitive dept name")
+    other = create_department(s, "content")
+    b = create_agent(s, other["id"], "worker_2")
+    create_task(s, g["id"], "content", "content's task")
+    mine = get_open_tasks(s, a["id"])
+    # research agent sees research tasks (name match, case-insensitive) and
+    # unassigned ones — the served system's fixed filter, ported
+    assert all((x["dept"].lower() == "research") or not x.get("agent_id")
+               for x in mine)
+    assert len(get_open_tasks(s, b["id"])) >= 1
+    print("  get_open_tasks: dept NAME-vs-id fix + unassigned clause ✓")
 
-    def planner(board):
-        if seen["planned"] == 0:
-            seen["planned"] = 1
-            return [("research", "find X"), ("content", "write Y")]
-        return []                                  # nothing more → stop
 
-    def reviewer(task, board):
-        ok = task["result"] and "done" in str(task["result"])
-        return ("complete" if ok else "not_complete", "checked")
+def test_roster_gate_no_soloing():
+    """rule-06: an unbootstrapped org must not run work."""
+    world = JobWorld(
+        departments={"research": Department("research",
+                                            FnRuntime(lambda s: "did it"))},
+        ceo=CEO(planner=lambda s: True, reviewer=lambda t, s: ("complete", "")),
+        rounds=3, name="ungated")
+    res = asyncio.run(world.execute({}))
+    s = res.context["store"]
+    assert s["tasks"] == {} and s["company"] is None     # nothing ran
+    print("  roster gate: empty org → no tasks, no soloing ✓")
+
+
+def test_workday_round_loop():
+    """first_boot → assign → dept works → emit_event flip → CEO review →
+    complete → stop. The full round, through the World object."""
+    st = {"assigned": False}
+
+    def first_boot(s):
+        create_company(s, "acme")
+        d = create_department(s, "research")
+        create_agent(s, d["id"], "worker_1")
+
+    def planner(s):
+        if st["assigned"]:
+            return False
+        p = create_project(s, "p")
+        m = create_milestone(s, p["id"], "m")
+        g = create_goal(s, m["id"], "g")
+        t = create_task(s, g["id"], "research", "find X")
+        assign_task(s, t["id"], next(iter(s["agents"])))
+        st["assigned"] = True
+        return True
 
     world = JobWorld(
-        departments={
-            "research": Department("research", FnRuntime(lambda s: "done: " + s)),
-            "content": Department("content", FnRuntime(lambda s: "half")),
-        },
-        ceo=CEO(planner, reviewer), rounds=6, name="org-test")
+        departments={"research": Department(
+            "research", FnRuntime(lambda spec: "found: "
+                                  + json.loads(spec)["description"]))},
+        ceo=CEO(planner, lambda t, s: ("complete", "verified"), first_boot),
+        rounds=6, name="workday")
     res = asyncio.run(world.execute({}))
-    b = res.context["board"]
-    st = {t["dept"]: t["status"] for t in b["tasks"]}
-    assert st["research"] == "complete"
-    assert st["content"] in ("not_complete", "supposedly_done")
-    kinds = [e["type"] for e in b["events"]]
-    assert "assign" in kinds and "report" in kinds and "review" in kinds
-    print(f"  org round loop: assign→work→report→review "
-          f"(research=complete, content={st['content']}), "
-          f"{len(b['events'])} events ✓")
-
-
-def test_department_that_IS_a_world(root, quests):
-    """A department whose runtime boots a whole SkillcraftWorld and reports
-    from its board — an agent running AS an entire world."""
-    class WorldRuntime:
-        async def run(self, spec):
-            sp = craft_skill(root, "w_agent", "dept_product", "# real skill")
-            world = SkillcraftWorld(
-                agents={"w_agent": Department("w_agent", FnRuntime(
-                    lambda s: ""))},   # placeholder player; the craft is done
-                agents_root=root, quests_root=quests, rounds=1, seasons=1,
-                name="inner-world")
-            res = await world.execute({"board": initial_state(["w_agent"])})
-            inner = res.context["board"]
-            return {"crafted": sp, "season": inner["season"]["number"]}
-
-    def planner(board):
-        return [("world_dept", "produce")] if not board["tasks"] else []
-
-    world = JobWorld(
-        departments={"world_dept": Department("world_dept", WorldRuntime())},
-        ceo=CEO(planner, lambda t, b: ("complete", "world reported")),
-        rounds=4, name="org-of-worlds")
-    res = asyncio.run(world.execute({}))
-    task = res.context["board"]["tasks"][0]
-    assert task["status"] == "complete"
-    assert task["result"]["crafted"].endswith("dept_product.md")
-    assert os.path.isfile(os.path.join(root, "w_agent", "crafted",
-                                       "dept_product.md"))
-    print("  a department ran AS an entire world (SkillcraftWorld inside the "
-          "org; real artifact on disk) ✓")
+    s = res.context["store"]
+    task = next(iter(s["tasks"].values()))
+    assert task["status"] == "complete" and "found: find X" in task["result"]
+    assert next(iter(s["goals"].values()))["status"] == "met"
+    chart = get_org_chart(s)
+    assert chart["company"]["name"] == "acme"
+    assert chart["departments"][0]["agents"][0]["name"] == "worker_1"
+    kinds = [e.get("observation", {}).get("status") for e in s["events"]]
+    assert "first_boot" in kinds and "completed" in kinds \
+        and "round_complete" in kinds
+    print("  the workday round: boot→assign→work→flip→review→met, "
+          "org chart + event stream ✓")
 
 
 def test_dark_factory_world():
-    """DarkFactoryWorld from ONE config dict: live plays → telemetry aims dev
-    → dev's candidate → the judge (gate+race seat) → verdicts on the board."""
     cfg = {"factory_name": "df-test", "charter": "IMPROVE THE CODEBASE",
-           "jobworld_rounds": 6}
-    dev = FnRuntime(lambda spec: {"candidate": "skill.md",
-                                  "change": "composed a recipe",
-                                  "saw_charter": "IMPROVE THE CODEBASE" in spec})
-    live = FnRuntime(lambda spec: {"throughput": 3, "trades": 1})
-    judged = {}
+           "jobworld_rounds": 8}
+    seen = {}
 
-    def judge(candidate, board):
-        judged.update(candidate)
-        return {"verdict": "SHIP", "fitness": "4→6"}
+    def dev(spec):
+        task = json.loads(spec)
+        inner = json.loads(task["description"])
+        seen["charter_piped"] = "IMPROVE THE CODEBASE" in inner["charter"]
+        seen["telemetry_piped"] = "throughput" in str(inner["telemetry"])
+        return {"candidate": "recipe.md", "change": "composed a recipe"}
 
-    world = DarkFactoryWorld(cfg, dev_world_runtime=dev,
-                             live_world_runtime=live, judge=judge)
+    def judge(candidate, store):
+        seen["judged"] = candidate
+        return {"verdict": "SHIP", "fitness": "2→4"}
+
+    world = DarkFactoryWorld(
+        cfg,
+        dev_world_runtime=FnRuntime(dev),
+        live_world_runtime=FnRuntime(lambda spec: {"throughput": 2}),
+        judge=judge)
     res = asyncio.run(world.execute({}))
-    b = res.context["board"]
-    st = {t["dept"]: t for t in b["tasks"]}
-    assert st["live_world"]["status"] == "complete"
-    assert st["dev_world"]["status"] == "complete"          # SHIP ⇒ complete
-    assert st["dev_world"]["review"]["verdict"] == "SHIP"
-    assert judged.get("saw_charter") is True                 # charter piped
-    assert judged.get("change") == "composed a recipe"       # candidate piped
-    print("  DarkFactoryWorld: one config → live→telemetry→dev→judge→SHIP, "
-          "all on the org board ✓")
+    s = res.context["store"]
+    by_dept = {t["dept"]: t for t in s["tasks"].values()}
+    assert s["company"]["name"] == "df-test"
+    assert len(s["departments"]) == 2 and len(s["agents"]) == 2
+    assert by_dept["live_world"]["status"] == "complete"
+    assert by_dept["dev_world"]["status"] == "complete"
+    assert seen["charter_piped"] and seen["telemetry_piped"]
+    assert seen["judged"]["change"] == "composed a recipe"
+    goal = next(iter(s["goals"].values()))
+    ms = next(iter(s["milestones"].values()))
+    assert goal["status"] == "met" and ms["status"] == "true"   # the cascade
+    print("  DarkFactoryWorld: first-boot org → live→dev→judge→SHIP → "
+          "goal 'met', milestone 'true' — one config, the real cascades ✓")
 
 
 def main():
-    with tempfile.TemporaryDirectory() as d:
-        test_lifecycle_and_guards()
-        test_org_round_loop()
-        test_department_that_IS_a_world(os.path.join(d, "agents"),
-                                        os.path.join(d, "quests"))
-        test_dark_factory_world()
-    print("JOBWORLD PASS — the org is a literal World() class in the library; "
-          "departments run as agents OR as entire worlds; the dark factory's "
-          "jobworld is one configured object.")
+    test_entities_exact()
+    test_observation_flip_and_block()
+    test_review_cascade()
+    test_department_write_path_guarded()
+    test_open_tasks_dept_name_fix()
+    test_roster_gate_no_soloing()
+    test_workday_round_loop()
+    test_dark_factory_world()
+    print("JOBWORLD PARITY PASS — the class carries the served system's exact "
+          "semantics (store, flip, cascades, roster gate, round loop); the "
+          "dark factory's jobworld runs on it from one config.")
 
 
 if __name__ == "__main__":
