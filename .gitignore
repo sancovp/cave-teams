@@ -10,3 +10,6 @@ dist/
 THE-ONLY-SOURCE-OF-TRUTH.md
 __pycache__/
 *.pyc
+
+# generated SkillTree (rebuild: skilltree build curriculum/cave-teams.manifest.json curriculum/tree)
+curriculum/tree/

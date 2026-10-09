@@ -1,0 +1,66 @@
+{
+  "skilltree": {
+    "name": "cave-teams-volume",
+    "kind": "skill",
+    "skill_src": "plugin/skills/cave-teams-volume",
+    "description": "The front door — cave-teams as one dependency-ordered course.",
+    "children": [
+      {
+        "name": "cave-teams",
+        "kind": "skill",
+        "skill_src": "plugin/skills/cave-teams",
+        "description": "The one idea: everything is a Link; agent = team = world; the >> / | operators."
+      },
+      {
+        "name": "cave-inprocess",
+        "kind": "skill",
+        "description": "The in-process plane — .execute() threads a Python dict through the links. The topologies you compose with the DSL.",
+        "children": [
+          {"name": "cave-sequential", "kind": "skill", "skill_src": "plugin/skills/cave-sequential", "description": "Run agents in order; each reads the previous output. The >> operator."},
+          {"name": "cave-parallel", "kind": "skill", "skill_src": "plugin/skills/cave-parallel", "description": "Run agents concurrently on the same input; outputs merge. The | operator."},
+          {"name": "cave-branch", "kind": "skill", "skill_src": "plugin/skills/cave-branch", "description": "Route to the first agent whose condition holds. choice()."},
+          {"name": "cave-conditions", "kind": "skill", "skill_src": "plugin/skills/cave-conditions", "description": "The message state machine — how a topology compiles to guardrail conditions."},
+          {"name": "cave-gate", "kind": "skill", "skill_src": "plugin/skills/cave-gate", "description": "Loop an agent until an evaluator approves (always terminates). gate()."},
+          {"name": "cave-dag", "kind": "skill", "skill_src": "plugin/skills/cave-dag", "description": "Arbitrary dependency graph of agents; sequential is the linear limit."},
+          {"name": "cave-dovetail", "kind": "skill", "skill_src": "plugin/skills/cave-dovetail", "description": "Typed hand-off of named data between agents. dove()."},
+          {"name": "cave-tournament", "kind": "skill", "skill_src": "plugin/skills/cave-tournament", "description": "N agents compete, a judge picks the winner. tournament()."}
+        ]
+      },
+      {
+        "name": "cave-leader-spine",
+        "kind": "skill",
+        "description": "The leader-driven plane (the real runtime) — messages are FILES, a leader routes them, a guardrail gates turn-order. The part the flat forest under-taught.",
+        "children": [
+          {"name": "cave-run-team", "kind": "skill", "skill_src": "plugin/skills/cave-run-team", "description": "The runtime entry points — run_team (pure) and cave_team (ephemeral CAVE server + live dashboard)."},
+          {"name": "cave-leader", "kind": "skill", "skill_src": "plugin/skills/cave-leader", "description": "The leader loop — propose one message per step, broadcast, concurrent teammates, the guardrail, raw|llm|file modes."},
+          {"name": "cave-messages", "kind": "skill", "skill_src": "plugin/skills/cave-messages", "description": "The file substrate — a message IS a JSON file, dispatch is a pointer, the session dir layout."}
+        ]
+      },
+      {
+        "name": "cave",
+        "kind": "skill",
+        "skill_src": "plugin/skills/cave",
+        "description": "Metacontrol — build/run ANY team from a plain-data spec; the team_run op drives the leader-driven plane; the golden library; scan across projects."
+      },
+      {
+        "name": "cave-worlds",
+        "kind": "skill",
+        "description": "Leader-driven server teams — agents collaborating on shared state over rounds. Built on the spine.",
+        "children": [
+          {"name": "cave-blackboard", "kind": "skill", "skill_src": "plugin/skills/cave-blackboard", "description": "N agents read/write a shared board over rounds with a mutator (stigmergy arena). blackboard()."},
+          {"name": "cave-metacog", "kind": "skill", "skill_src": "plugin/skills/cave-metacog", "description": "A team that reflects on its own run — metacognition over the event stream."},
+          {"name": "cave-season", "kind": "skill", "skill_src": "plugin/skills/cave-season", "description": "Repeated rounds with carried state — a season of play."},
+          {"name": "cave-sim", "kind": "skill", "skill_src": "plugin/skills/cave-sim", "description": "A simulation world of interacting agents."},
+          {"name": "cave-evolve", "kind": "skill", "skill_src": "plugin/skills/cave-evolve", "description": "Evolve/select over agent configs across generations."},
+          {"name": "cave-world", "kind": "skill", "skill_src": "plugin/skills/cave-world", "description": "The gameworld — the composed world pattern (NPCs, nested worlds)."}
+        ]
+      },
+      {
+        "name": "cave-teams-learner",
+        "kind": "skill",
+        "skill_src": "plugin/skills/cave-teams-learner",
+        "description": "The testing machine — force every topology to RUN with real agents and read the interactions (not pass flags). The powerset-agent way."
+      }
+    ]
+  }
+}

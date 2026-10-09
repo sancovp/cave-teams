@@ -47,6 +47,9 @@ imagegen = ["openai"]
 Homepage = "https://github.com/sancovp/cave-teams"
 Repository = "https://github.com/sancovp/cave-teams"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 include = ["cave_teams*"]
 
